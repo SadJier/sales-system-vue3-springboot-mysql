@@ -49,7 +49,7 @@ public class OrderServiceImpl implements OrderService {
 
     /// <summary>分页查询订单</summary>
     public Result<OrderGetPageVO> getOrderPage(OrderGetPageDTO dto) {
-        log.info("分页查询订单");
+//        log.info("分页查询订单");
         int page_index = dto.getPageIndex() <= 0 ? 0 : dto.getPageIndex() - 1;
         int page_size = dto.getPageSize() <= 0 ? 10 : dto.getPageSize();
         PageRequest page_request = PageRequest.of(page_index, page_size);

@@ -32,7 +32,7 @@ public class LoginInterceptor implements HandlerInterceptor {
 
         response.setContentType("application/json;charset=UTF-8");
         response.setCharacterEncoding("UTF-8");
-        log.info("拦截请求:URI({}),方法({}),Token({})", request.getRequestURI(), request.getMethod(), token);
+//        log.info("拦截请求:URI({}),方法({}),Token({})", request.getRequestURI(), request.getMethod(), token);
         //没有Token
         if (token == null) {
             response.setStatus(401);
@@ -56,7 +56,7 @@ public class LoginInterceptor implements HandlerInterceptor {
             return false;
         }
 
-        log.info("请求通过:URI({}),方法({}),Token({})", request.getRequestURI(), request.getMethod(), token);
+//        log.info("请求通过:URI({}),方法({}),Token({})", request.getRequestURI(), request.getMethod(), token);
         //校验通过，放行
         return true;
     }

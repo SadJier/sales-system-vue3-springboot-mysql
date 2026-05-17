@@ -57,7 +57,7 @@ public class UserServiceImpl implements UserService {
         // 密码
         String password = dto.getPassword();
         UserRolesEnum role = dto.getRole();
-        log.info("用户登录请求:用户名({}),密码({}),身份({})", user_name,password,role);
+//        log.info("用户登录请求:用户名({}),密码({}),身份({})", user_name,password,role);
         // 用户信息
         SysUser sys_user = sys_user_repo.findByUserName(user_name);
         if (sys_user == null || !sys_user.getRole().equals(role)) {
@@ -88,7 +88,7 @@ public class UserServiceImpl implements UserService {
         String password = (String) dto.getPassword();
         //角色
         UserRolesEnum role = dto.getRole();
-        log.info("用户注册请求:用户名({}),密码({}),身份({})", user_name,password,role);
+//        log.info("用户注册请求:用户名({}),密码({}),身份({})", user_name,password,role);
         //用户信息
         SysUser exist_user = sys_user_repo.findByUserName(user_name);
         if (exist_user != null) {
@@ -112,8 +112,7 @@ public class UserServiceImpl implements UserService {
 
         var claims = JwtUtil.parseToken(token);
         var username = JwtUtil.getUsername(claims);
-        log.info("用户({})登出",username);
-        // TODO:让token过期的操作
+//        log.info("用户({})登出",username);
         redis_template.opsForValue().set(token,"logout", JwtUtil.getRemainingTime(claims), java.util.concurrent.TimeUnit.MILLISECONDS);
         return Result.success(ResultMsgConstant.USER_LOGOUT_SUCCESS);
     }
@@ -156,7 +155,7 @@ public class UserServiceImpl implements UserService {
         if(user_id == null) return Result.result(ResultStatusEnum.DATA_MISSING,ResultMsgConstant.TOKEN_LOCAL_INVALID);
         String old_password = dto.getOldPassword();
         String new_password = dto.getNewPassword();
-        log.info("用户更新密码请求:userid({}),旧密码({}),新密码({})", user_id,old_password,new_password);
+//        log.info("用户更新密码请求:userid({}),旧密码({}),新密码({})", user_id,old_password,new_password);
         SysUser sys_user = sys_user_repo.findByUserId(user_id);
         if (sys_user == null) {
             return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.USER_NOT_FOUND);
@@ -174,7 +173,7 @@ public class UserServiceImpl implements UserService {
     /// <summary>上传头像</summary>
     public Result<String> uploadAvatar(UserUploadAvatarDTO dto) {
         var user_id = JwtUtil.getUserId();
-        log.info("用户ID({})上传头像", user_id);
+//        log.info("用户ID({})上传头像", user_id);
 
         if(!CommonUtil.uploadUserAvatar(user_id, dto.getFile()))
             return Result.result(ResultStatusEnum.ERROR,ResultMsgConstant.USER_AVATAR_UPLOAD_FAILED);

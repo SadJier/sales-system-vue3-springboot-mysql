@@ -55,7 +55,7 @@ public class ProductServiceImpl implements ProductService {
 
     /// <summary>分页查询商品</summary>
     public Result<ProductGetPageVO> getProductPage(ProductGetPageDTO dto) {
-        log.info("分页查询商品");
+//        log.info("分页查询商品");
         //页码默认值
         int page_index = dto.getPageIndex() <= 0 ? 0 : dto.getPageIndex()-1;
         //每页数量默认值
@@ -121,7 +121,7 @@ public class ProductServiceImpl implements ProductService {
     /// <summary>上传商品图片</summary>
     public Result<String> uploadProductImage(ProductUploadImageDTO dto){
         var claims = JwtUtil.parseToken(CommonUtil.getToken());
-        log.info("用户ID({})上传商品图片", JwtUtil.getUserId(claims));
+//        log.info("用户ID({})上传商品图片", JwtUtil.getUserId(claims));
         //检验是否为商家、商品是否为该商家的
         if(JwtUtil.getUserRole(claims) != UserRolesEnum.MERCHANT)
             return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_IMAGE_UPLOAD_ONLY_MERCHANT);
