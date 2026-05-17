@@ -109,12 +109,13 @@
                 <el-table-column prop="productId" label="商品ID" width="100" />
                 <el-table-column prop="name" label="商品名称" width="200">
                     <template #default="{ row }">
-                        <strong>{{ row.name }}</strong>
+                        <el-link type="primary" @click="goToProductDetail(row.productId)">{{ row.name }}</el-link>
                     </template>
                 </el-table-column>
                 <el-table-column prop="category" label="分类" width="100">
                     <template #default="{ row }">
-                        <el-tag size="small">{{ row.category }}</el-tag>
+                        <el-tag v-if="row.category" size="small">{{ row.category }}</el-tag>
+                        <el-tag v-else size="small" type="info">无分类</el-tag>
                     </template>
                 </el-table-column>
                 <el-table-column label="进价" width="100" align="right">
@@ -155,6 +156,8 @@
 import { useUserStore } from '@/pinia/userStores.js';
 import { ElMessage } from 'element-plus';
 import { User, Search } from '@element-plus/icons-vue';
+import router from '@/router';
+import { processResult } from '@/axios/index.js';
 import { getProductList } from '@/api/index.js';
 
 export default {
@@ -233,6 +236,11 @@ export default {
         this.loadData();
     },
     methods: {
+        // 跳转到商品详情页
+        goToProductDetail(product_id) {
+            router.push(`/goods/detail/${product_id}`);
+        },
+
         async loadData() {
             this.loading = true;
 
@@ -255,20 +263,19 @@ export default {
                 // 获取商品列表
                 const response = await getProductList({
                     productName: '',
-                    category: '',
+                    categoryId: '',
                     pageIndex: 1,
                     pageSize: 1000
                 });
 
-                if (response.data.code === 1) {
-                    const res_data = response.data.data;
+                const result = processResult(response.data, '获取商品列表失败');
+                if (result.success) {
+                    const res_data = result.data;
                     if (res_data && Array.isArray(res_data.items)) {
                         this.productList = res_data.items;
                     } else {
                         this.productList = [];
                     }
-                } else {
-                    ElMessage.error(response.data.msg || '获取商品列表失败');
                 }
 
             } catch (error) {

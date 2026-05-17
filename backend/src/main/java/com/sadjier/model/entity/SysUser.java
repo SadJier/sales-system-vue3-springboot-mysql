@@ -1,14 +1,7 @@
 package com.sadjier.model.entity;
 
-import com.sadjier.enums.UserRole;
-import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import com.sadjier.enums.UserRolesEnum;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -39,8 +32,9 @@ public class SysUser {
     @Column(name = "status")
     private String status;
     /// <summary>用户角色</summary>
+    @Enumerated(EnumType.STRING)
     @Column(name = "role")
-    private UserRole role;
+    private UserRolesEnum role;
     /// <summary>创建时间</summary>
     @Column(name = "create_time")
     private LocalDateTime createTime;

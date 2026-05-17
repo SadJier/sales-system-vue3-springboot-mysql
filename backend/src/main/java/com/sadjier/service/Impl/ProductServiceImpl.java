@@ -1,35 +1,42 @@
 package com.sadjier.service.Impl;
 
+import com.sadjier.dao.CategoryRepository;
+import com.sadjier.dao.OrdersRepository;
 import com.sadjier.dao.ProductRepository;
 import com.sadjier.dao.SysUserRepository;
-import com.sadjier.enums.UserRole;
-import com.sadjier.model.dto.ProductCreateDTO;
-import com.sadjier.model.dto.ProductGetPageDTO;
-import com.sadjier.model.dto.ProductUpdateDTO;
-import com.sadjier.model.dto.ProductUploadImageDTO;
+import com.sadjier.enums.ResultStatusEnum;
+import com.sadjier.enums.UserRolesEnum;
+import com.sadjier.model.dto.product.ProductCreateDTO;
+import com.sadjier.model.dto.product.ProductGetPageDTO;
+import com.sadjier.model.dto.product.ProductUpdateDTO;
+import com.sadjier.model.dto.product.ProductUploadImageDTO;
+import com.sadjier.model.entity.Orders;
 import com.sadjier.model.entity.Product;
 import com.sadjier.common.Result;
-import com.sadjier.model.entity.SysUser;
-import com.sadjier.model.vo.ProductGetPageVO;
-import com.sadjier.model.vo.ProductListItemVO;
+import com.sadjier.constant.ResultMsgConstant;
+import com.sadjier.model.vo.product.ProductGetPageVO;
+import com.sadjier.model.vo.product.ProductListItemVO;
+import com.sadjier.model.vo.product.ProductStatsVO;
+import com.sadjier.model.vo.product.ProductVO;
+import com.sadjier.model.vo.product.SaleRecordVO;
 import com.sadjier.service.ProductService;
 import com.sadjier.util.CommonUtil;
+import com.sadjier.util.JwtUtil;
 import jakarta.persistence.criteria.Predicate;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.server.ResponseStatusException;
 
-import java.io.File;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
+
+import static java.util.stream.Collectors.toList;
 
 /// <summary>商品服务实现</summary>
 @Service
@@ -40,14 +47,19 @@ public class ProductServiceImpl implements ProductService {
     private ProductRepository product_repo;
     @Autowired
     private SysUserRepository sys_user_repo;
+    @Autowired
+    private CategoryRepository category_repo;
+    /// <summary>订单仓储</summary>
+    @Autowired
+    private OrdersRepository order_repo;
 
     /// <summary>分页查询商品</summary>
     public Result<ProductGetPageVO> getProductPage(ProductGetPageDTO dto) {
         log.info("分页查询商品");
         //页码默认值
-        int page_index = dto.getPageIndex() <= 0 ? 1 : dto.getPageIndex();
+        int page_index = dto.getPageIndex() <= 0 ? 0 : dto.getPageIndex()-1;
         //每页数量默认值
-        int page_size = dto.getPageIndex() <= 0 ? 10 : dto.getPageIndex();
+        int page_size = dto.getPageSize() <= 0 ? 10 : dto.getPageSize();
         //分页对象
         PageRequest page_request = PageRequest.of(page_index, page_size);
         //查询条件构造器
@@ -56,13 +68,26 @@ public class ProductServiceImpl implements ProductService {
             List<Predicate> predicate_list = new ArrayList<>();
             if (StringUtils.hasText(dto.getProductName())) {
                 //名称条件
-                Predicate name_predicate = criteria_builder.like(root.get("Name"), "%" + dto.getProductName() + "%");
+                Predicate name_predicate = criteria_builder.like(root.get("name"), "%" + dto.getProductName() + "%");
                 predicate_list.add(name_predicate);
             }
-            if (StringUtils.hasText(dto.getCategory())) {
+            if (dto.getCategoryId()!=null) {
                 //分类条件
-                Predicate category_predicate = criteria_builder.like(root.get("Category"), "%" + dto.getCategory() + "%");
+                Predicate category_predicate = criteria_builder.equal(root.get("category").get("categoryId"), dto.getCategoryId());
                 predicate_list.add(category_predicate);
+            }
+            String token = CommonUtil.getToken();
+            if(StringUtils.hasText(token)){
+                var claim = JwtUtil.parseToken(token);
+                if(claim != null){
+                    var user_id = JwtUtil.getUserId(claim);
+                    var role = JwtUtil.getUserRole(claim);
+                    if(user_id != null && role == UserRolesEnum.MERCHANT){
+                        //仅查询自己的商品
+                        Predicate merchant_predicate = criteria_builder.equal(root.get("merchant").get("userId"), user_id);
+                        predicate_list.add(merchant_predicate);
+                    }
+                }
             }
             return criteria_builder.and(predicate_list.toArray(new Predicate[0]));
         };
@@ -74,40 +99,79 @@ public class ProductServiceImpl implements ProductService {
         vo.setItems(product_page.getContent().stream().map(ProductListItemVO::new).toList());
         return Result.success(vo);
     }
-    /// <summary>根据ID获取商品</summary>
-    public Result getProductById(Long product_id) {
-        /// <summary>商品信息</summary>
-        Product product = product_repo.findById(product_id).orElse(null);
-        if (product == null) {
-            return Result.error("商品不存在");
-        }
-        return Result.success(product);
-    }
     /// <summary>新增商品</summary>
-    public Result addProduct(ProductCreateDTO product_create) {
-        /// <summary>商品对象</summary>
+    public Result<String> addProduct(ProductCreateDTO product_create) {
+        var claims = JwtUtil.parseToken(CommonUtil.getToken());
+        if(JwtUtil.getUserRole(claims) != UserRolesEnum.MERCHANT){
+            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_ADD_ONLY_BY_MERCHANT);
+        }
         Product product = new Product();
         product.setName(product_create.getName());
-        product.setCategory(product_create.getCategory());
+        var category = category_repo.findByCategoryId(product_create.getCategoryId());
+        if(category == null) return Result.result(ResultStatusEnum.DATA_INVALID,ResultMsgConstant.PRODUCT_CATEGORY_INVALID);
+        product.setCategory(category);
         product.setPurchasePrice(product_create.getPurchasePrice());
         product.setSalePrice(product_create.getSalePrice());
         product.setStock(product_create.getStock());
+        product.setMerchant(sys_user_repo.findByUserId(JwtUtil.getUserId(claims)));
         product.setCreateTime(LocalDateTime.now());
         product_repo.save(product);
-        return Result.success("新增商品成功");
+        return Result.success(ResultMsgConstant.PRODUCT_ADD_SUCCESS);
+    }
+    /// <summary>上传商品图片</summary>
+    public Result<String> uploadProductImage(ProductUploadImageDTO dto){
+        var claims = JwtUtil.parseToken(CommonUtil.getToken());
+        log.info("用户ID({})上传商品图片", JwtUtil.getUserId(claims));
+        //检验是否为商家、商品是否为该商家的
+        if(JwtUtil.getUserRole(claims) != UserRolesEnum.MERCHANT)
+            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_IMAGE_UPLOAD_ONLY_MERCHANT);
+        Product product = product_repo.findByProductId(dto.getProductId());
+        if(product == null)
+            return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.PRODUCT_NOT_FOUND);
+        if(!Objects.equals(product.getMerchant().getUserId(), JwtUtil.getUserId(claims)))
+            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_IMAGE_UPLOAD_ONLY_OWN);
+
+        if(!CommonUtil.uploadProductImage(dto.getProductId(), dto.getFile()))
+            return Result.result(ResultStatusEnum.ERROR,ResultMsgConstant.PRODUCT_IMAGE_UPLOAD_FAILED);
+        return Result.success(ResultMsgConstant.PRODUCT_IMAGE_UPLOAD_SUCCESS);
+    }
+    /// <summary>获取商品图片</summary>
+    public Resource getProductImage(Long productId) {
+        return CommonUtil.getProductImage(productId);
+    }
+    /// <summary>根据ID获取商品</summary>
+    public Result<ProductVO> getProductById(Long product_id) {
+        //商品存在性检测
+        Product product = product_repo.findByProductId(product_id);
+        if (product == null) {
+            return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.PRODUCT_NOT_FOUND);
+        }
+        var claim = JwtUtil.parseToken(CommonUtil.getToken());
+        var user_id = JwtUtil.getUserId(claim);
+        var role = JwtUtil.getUserRole(claim);
+        //商家只能查询自己的商品
+        if (role == UserRolesEnum.MERCHANT && !Objects.equals(product.getMerchant().getUserId(), user_id)) {
+            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_GET_ONLY_OWN);
+        }
+        return Result.success(new ProductVO(product));
     }
     /// <summary>更新商品</summary>
-    public Result updateProduct(Long product_id, ProductUpdateDTO product_update) {
-        /// <summary>商品对象</summary>
-        Product product = product_repo.findById(product_id).orElse(null);
-        if (product == null) {
-            return Result.error("商品不存在");
-        }
+    public Result<String> updateProduct(ProductUpdateDTO product_update) {
+        Product product = product_repo.findByProductId(product_update.getProductId());
+        if (product == null) return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.PRODUCT_NOT_FOUND);
+        var claims = JwtUtil.parseToken(CommonUtil.getToken());
+        var user_id = JwtUtil.getUserId(claims);
+        if(!Objects.equals(product.getMerchant().getUserId(), user_id)) return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_UPDATE_ONLY_OWN);
         if (StringUtils.hasText(product_update.getName())) {
             product.setName(product_update.getName());
         }
-        if (StringUtils.hasText(product_update.getCategory())) {
-            product.setCategory(product_update.getCategory());
+        if (product_update.getCategoryId()!=null) {
+            var category = category_repo.findByCategoryId(product_update.getCategoryId());
+            if(category!=null){
+                product.setCategory(category);
+            }else{
+                return Result.result(ResultStatusEnum.DATA_INVALID,ResultMsgConstant.PRODUCT_CATEGORY_INVALID);
+            }
         }
         if (product_update.getPurchasePrice() != null) {
             product.setPurchasePrice(product_update.getPurchasePrice());
@@ -119,55 +183,61 @@ public class ProductServiceImpl implements ProductService {
             product.setStock(product_update.getStock());
         }
         product_repo.save(product);
-        return Result.success("更新商品成功");
+        return Result.success(ResultMsgConstant.PRODUCT_UPDATE_SUCCESS);
     }
     /// <summary>删除商品</summary>
-    public Result deleteProduct(Long product_id) {
-        /// <summary>商品对象</summary>
-        Product product = product_repo.findById(product_id).orElse(null);
-        if (product == null) {
-            return Result.error("商品不存在");
-        }
+    public Result<String> deleteProduct(Long product_id) {
+        Product product = product_repo.findByProductId(product_id);
+        if (product == null) return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.PRODUCT_NOT_FOUND);
+        var claims = JwtUtil.parseToken(CommonUtil.getToken());
+        var user_id = JwtUtil.getUserId(claims);
+        if(!Objects.equals(product.getMerchant().getUserId(), user_id)) return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_DELETE_ONLY_OWN);
         product_repo.deleteById(product_id);
-        return Result.success("删除商品成功");
+        return Result.success(ResultMsgConstant.PRODUCT_DELETE_SUCCESS);
     }
-    /// <summary>上传商品图片</summary>
-    public Result<String> uploadProductImage(ProductUploadImageDTO dto){
-        String absolute_path = CommonUtil.getProductImageFolderPath();
-        log.info("用户ID({})上传头像", dto.getMerchantId());
-        File folder = new File(absolute_path);
-        if (!folder.exists()) {
-            folder.mkdirs();
-        }
-        //检验是否为商家、商品是否为该商家的
-        SysUser user = sys_user_repo.findByUserId(dto.getMerchantId());
-        if(user==null || user.getRole() != UserRole.MERCHANT){
-            Result.error("只有商家才能上传商品图片");
-        }
-        Product product = product_repo.findByProductId(dto.getProductId());
-        if(product==null || !Objects.equals(product.getMerchant().getUserId(), dto.getMerchantId())){
-            Result.error("只能上传自己商品的图片");
+    /// <summary>获取商品详情统计</summary>
+    public Result<ProductStatsVO> getProductStats(Long product_id) {
+        Product product = product_repo.findByProductId(product_id);
+        if (product == null) return Result.result(ResultStatusEnum.NO_DATA, ResultMsgConstant.PRODUCT_NOT_FOUND);
+        var claim = JwtUtil.parseToken(CommonUtil.getToken());
+        var user_id = JwtUtil.getUserId(claim);
+        var role = JwtUtil.getUserRole(claim);
+        if (role == UserRolesEnum.MERCHANT && !Objects.equals(product.getMerchant().getUserId(), user_id)) {
+            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION, ResultMsgConstant.PRODUCT_GET_ONLY_OWN);
         }
 
-        String file_name = dto.getProductId() + ".jpg";
-        File dest_file = new File(absolute_path + "/" + file_name);
-        try{
-            dto.getFile().transferTo(dest_file);
-        }catch (Exception e){
-            log.error("商品图片上传失败:{}",e.getMessage());
-            return Result.error("商品图片上传失败");
+        ProductStatsVO vo = new ProductStatsVO();
+        vo.setProductId(product.getProductId());
+        vo.setName(product.getName());
+        vo.setProductId(product.getCategory() != null ? product.getCategory().getCategoryId() : null);
+        vo.setPurchasePrice(product.getPurchasePrice());
+        vo.setSalePrice(product.getSalePrice());
+        vo.setStock(product.getStock());
+        vo.setCreateTime(product.getCreateTime());
+
+        // 商品销售汇总数据
+        Object[] sales_data = order_repo.sumSalesByProductId(product_id).get(0);
+        if (sales_data != null && sales_data.length >= 2) {
+            vo.setTotalSales(((Number) sales_data[0]).intValue());
+            vo.setTotalRevenue((BigDecimal) sales_data[1]);
+        } else {
+            vo.setTotalSales(0);
+            vo.setTotalRevenue(BigDecimal.ZERO);
         }
-        return Result.success("商品图片上传成功");
-    }
-    /// <summary>获取商品图片</summary>
-    public Resource getProductImage(Long productId) {
-        String absolute_path = CommonUtil.getProductImageFolderPath();
-        String file_name = productId + ".jpg";
-        File avatar_file = new File(absolute_path + "/" + file_name);
-        if (!avatar_file.exists()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "找不到商品图片");
-        }
-        return new FileSystemResource(avatar_file);
+
+        // 近期销售记录
+        List<Orders> recent_orders = order_repo.findTop10ByProductProductIdOrderByCreateTimeDesc(product_id);
+//        log.info("查询商品ID({})的近期销售记录，记录数: {}", product_id, recent_orders.size());
+        List<SaleRecordVO> recent_sales = recent_orders.stream().map(order -> {
+            SaleRecordVO record = new SaleRecordVO();
+            record.setOrderId(order.getOrderId());
+            record.setQuantity(order.getQuantity());
+            record.setCreateTime(order.getCreateTime());
+            return record;
+        }).toList();
+        vo.setRecentSales(recent_sales);
+
+        return Result.success(vo);
     }
 }
 

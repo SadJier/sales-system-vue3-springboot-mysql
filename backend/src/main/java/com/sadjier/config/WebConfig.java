@@ -33,7 +33,10 @@ public class WebConfig implements WebMvcConfigurer {
                 //放行静态文件访问
                 "/api/users/avatars/**",
                 "/uploads/avatars/**",
+                "/api/products/image/**",
+                "/uploads/products/**",
                 // 放行接口文档所有资源
+                "/favicon.ico",
                 "/doc.html",
                 "/webjars/**",
                 "/v3/**",

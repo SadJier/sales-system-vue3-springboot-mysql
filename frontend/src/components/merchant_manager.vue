@@ -29,15 +29,20 @@
         <!-- 标签栏导航 -->
         <el-tabs v-model="activeTab" class="nav-tabs" @tab-change="handleTabChange">
             <el-tab-pane label="商品管理" name="/goods/manage" />
-            <el-tab-pane label="商家管理" name="/merchants/manage" />
+            <el-tab-pane label="订单管理" name="/orders/manage" />
+            <el-tab-pane label="分类管理" name="/categories/manage" />
+            <el-tab-pane label="用户管理" name="/merchants/manage" />
             <el-tab-pane label="个人信息" name="/profile" />
         </el-tabs>
 
         <!-- 页面标题 -->
         <div class="page-header">
             <div class="header-content">
-                <h1 class="page-title">👥 商家管理</h1>
-                <p class="page-subtitle">搜索、查看和删除商家账户</p>
+                <h1 class="page-title">👥 用户管理</h1>
+                <p class="page-subtitle">搜索、查看和管理用户账户</p>
+            </div>
+            <div class="header-actions">
+                <el-button @click="handleSearch" :loading="loading">刷新</el-button>
             </div>
         </div>
 
@@ -45,10 +50,11 @@
         <div class="search-section">
             <el-input
                 v-model="searchKeyword"
-                placeholder="搜索商家（用户名）"
+                placeholder="搜索用户（用户名）"
                 clearable
                 size="large"
                 @keyup.enter="handleSearch"
+                @clear="handleSearch"
             >
                 <template #prefix>
                     <el-icon><Search /></el-icon>
@@ -57,36 +63,38 @@
                     <el-button @click="handleSearch" :loading="loading">搜索</el-button>
                 </template>
             </el-input>
+            <div class="filter-options">
+                <div class="filter-group">
+                    <label>身份筛选：</label>
+                    <el-select v-model="roleFilter" placeholder="全部身份" clearable size="default" style="min-width: 140px;" @change="handleSearch">
+                        <el-option label="商家" value="MERCHANT" />
+                        <el-option label="管理员" value="ADMIN" />
+                    </el-select>
+                </div>
+            </div>
         </div>
 
-        <!-- 商家列表 -->
+        <!-- 用户列表 -->
         <div class="merchant-list-section">
             <div class="section-header">
-                <h3>商家列表</h3>
+                <h3>用户列表</h3>
                 <div class="list-stats">
-                    共 {{ merchantList.length }} 个商家
+                    共 {{ filteredUserList.length }} 个用户
                 </div>
             </div>
 
-            <el-empty
-                v-if="!loading && merchantList.length === 0"
-                :description="searchKeyword ? '未找到相关商家' : '暂无商家数据'"
-            >
-                <el-button v-if="searchKeyword" @click="clearSearch">清空搜索</el-button>
-            </el-empty>
-
             <el-table
-                v-else
-                :data="merchantList"
+                :data="filteredUserList"
                 stripe
                 border
                 v-loading="loading"
                 style="width: 100%"
             >
-                <el-table-column prop="userId" label="商家ID" width="100" />
-                <el-table-column prop="username" label="用户名">
+                <el-table-column prop="userId" label="用户ID" width="100" />
+                <el-table-column prop="userName" label="用户名">
                     <template #default="{ row }">
-                        <strong>{{ row.username }}</strong>
+                        <el-link v-if="row.role === 'MERCHANT'" type="primary" @click="goToStoreOverview(row.userId)">{{ row.userName }}</el-link>
+                        <strong v-else>{{ row.userName }}</strong>
                     </template>
                 </el-table-column>
                 <el-table-column prop="role" label="身份" width="100">
@@ -96,20 +104,36 @@
                         </el-tag>
                     </template>
                 </el-table-column>
-                <el-table-column label="操作" width="120" align="center">
+                <el-table-column label="操作" width="160" align="center">
                     <template #default="{ row }">
                         <el-button
-                            v-if="row.role !== 'ADMIN'"
+                            v-if="row.role === 'MERCHANT'"
+                            type="primary"
+                            size="small"
+                            link
+                            @click="goToStoreOverview(row.userId)"
+                        >
+                            店铺
+                        </el-button>
+                        <el-button
+                            v-if="row.role === 'MERCHANT'"
                             type="danger"
                             size="small"
                             link
-                            @click="handleDeleteMerchant(row)"
+                            @click="handleDeleteUser(row)"
                         >
                             删除
                         </el-button>
                     </template>
                 </el-table-column>
             </el-table>
+
+            <el-empty
+                v-if="!loading && userList.length === 0"
+                :description="searchKeyword ? '未找到相关用户' : '暂无用户数据'"
+            >
+                <el-button v-if="searchKeyword" @click="clearSearch">清空搜索</el-button>
+            </el-empty>
         </div>
 
         <!-- 删除确认对话框 -->
@@ -120,19 +144,19 @@
             :close-on-click-modal="false"
         >
             <el-alert
-                title="确定要删除以下商家吗？"
+                title="确定要删除以下用户吗？"
                 type="warning"
                 :closable="false"
                 show-icon
                 style="margin-bottom: 16px;"
             />
 
-            <div class="merchant-to-delete" v-if="merchantToDelete">
+            <div class="merchant-to-delete" v-if="userToDelete">
                 <div class="merchant-info">
-                    <div class="merchant-title-delete">{{ merchantToDelete.username }}</div>
+                    <div class="merchant-title-delete">{{ userToDelete.userName }}</div>
                     <div class="merchant-details">
-                        <p><strong>商家ID：</strong>{{ merchantToDelete.userId }}</p>
-                        <p><strong>身份：</strong>{{ merchantToDelete.role === 'ADMIN' ? '管理员' : '商家' }}</p>
+                        <p><strong>用户ID：</strong>{{ userToDelete.userId }}</p>
+                        <p><strong>身份：</strong>{{ userToDelete.role === 'ADMIN' ? '管理员' : '商家' }}</p>
                     </div>
                 </div>
             </div>
@@ -143,13 +167,13 @@
                 style="margin-top: 16px;"
             >
                 <template #title>
-                    <div><strong>注意：</strong>此操作不可撤销，删除后商家信息将无法恢复。</div>
+                    <div><strong>注意：</strong>此操作不可撤销，删除后用户信息将无法恢复。</div>
                 </template>
             </el-alert>
 
             <template #footer>
                 <el-button @click="closeDeleteDialog">取消</el-button>
-                <el-button type="danger" @click="confirmDeleteMerchant" :loading="submitting">
+                <el-button type="danger" @click="confirmDeleteUser" :loading="submitting">
                     确认删除
                 </el-button>
             </template>
@@ -162,6 +186,7 @@ import { useUserStore } from '@/pinia/userStores.js';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Search, User, ArrowDown, SwitchButton } from '@element-plus/icons-vue';
 import router from '@/router';
+import { processResult } from '@/axios/index.js';
 import { userLogout, getUserList, deleteUser, getAvatarUrl } from '@/api/index.js';
 
 export default {
@@ -171,15 +196,17 @@ export default {
         return {
             // 当前用户信息
             currentUser: null,
-            // 商家数据列表
-            merchantList: [],
+            // 用户数据列表
+            userList: [],
             // 搜索关键词
             searchKeyword: '',
+            // 角色筛选
+            roleFilter: '',
             // 加载状态
             loading: false,
             submitting: false,
-            // 待删除商家
-            merchantToDelete: null,
+            // 待删除用户
+            userToDelete: null,
             // 删除对话框状态
             showDeleteDialog: false,
             // 头像时间戳（用于破缓存刷新头像）
@@ -187,10 +214,10 @@ export default {
         }
     },
     computed: {
-        // 当前激活的标签页
+        // 当前激活的标签页（跟随当前路由路径）
         activeTab: {
             get() {
-                return '/merchants/manage';
+                return this.$route.path;
             },
             set() {}
         },
@@ -201,6 +228,12 @@ export default {
                 return getAvatarUrl(this.currentUser.userId) + `?t=${this.avatar_timestamp}`;
             }
             return '';
+        },
+
+        // 按角色筛选后的用户列表
+        filteredUserList() {
+            if (!this.roleFilter) return this.userList;
+            return this.userList.filter(user => user.role === this.roleFilter);
         }
     },
     mounted() {
@@ -218,7 +251,6 @@ export default {
                     username: userStore.username,
                     role: userStore.role
                 };
-                // 非管理员不允许访问
                 if (userStore.role !== 'ADMIN') {
                     ElMessage.warning('仅管理员可访问此页面');
                     router.push('/goods/manage');
@@ -227,6 +259,11 @@ export default {
                 ElMessage.warning('请先登录');
                 router.push('/login');
             }
+        },
+
+        // 跳转到商家店铺概览页
+        goToStoreOverview(merchant_id) {
+            router.push({ path: '/store/overview', query: { merchantId: merchant_id } });
         },
 
         /**
@@ -265,22 +302,24 @@ export default {
         },
 
         /**
-         * 搜索商家
+         * 搜索用户
          */
         async handleSearch() {
             this.loading = true;
             try {
-                const response = await getUserList(this.searchKeyword || '');
-                if (response.data.code === 1) {
-                    const user_list = Array.isArray(response.data.data) ? response.data.data : [];
-                    // 仅显示商家角色
-                    this.merchantList = user_list.filter(user => user.role === 'MERCHANT');
-                } else {
-                    ElMessage.error(response.data.msg || '获取商家列表失败');
+                const response = await getUserList({ username: this.searchKeyword || '', pageIndex: 1, pageSize: 100 });
+                const result = processResult(response.data, '获取用户列表失败');
+                if (result.success) {
+                    const res_data = result.data;
+                    if (res_data && Array.isArray(res_data.items)) {
+                        this.userList = res_data.items;
+                    } else {
+                        this.userList = [];
+                    }
                 }
             } catch (error) {
-                console.error('获取商家列表失败:', error);
-                ElMessage.error('获取商家列表失败，请检查网络连接');
+                console.error('获取用户列表失败:', error);
+                ElMessage.error('获取用户列表失败，请检查网络连接');
             } finally {
                 this.loading = false;
             }
@@ -293,30 +332,29 @@ export default {
         },
 
         /**
-         * 处理删除商家
-         * @param {Object} merchant 待删除的商家
+         * 处理删除用户
+         * @param {Object} user 待删除的用户
          */
-        handleDeleteMerchant(merchant) {
-            this.merchantToDelete = merchant;
+        handleDeleteUser(user) {
+            this.userToDelete = user;
             this.showDeleteDialog = true;
         },
 
         /**
-         * 确认删除商家
+         * 确认删除用户
          */
-        async confirmDeleteMerchant() {
-            if (!this.merchantToDelete) return;
+        async confirmDeleteUser() {
+            if (!this.userToDelete) return;
 
             this.submitting = true;
             try {
-                const response = await deleteUser(this.merchantToDelete.userId);
+                const response = await deleteUser(this.userToDelete.userId);
 
-                if (response.data.code === 1) {
-                    ElMessage.success('商家删除成功');
+                const result = processResult(response.data, '删除失败');
+                if (result.success) {
+                    ElMessage.success(result.msg || '用户删除成功');
                     this.closeDeleteDialog();
                     this.handleSearch();
-                } else {
-                    ElMessage.error(response.data.msg || '删除失败');
                 }
             } catch (error) {
                 console.error('删除失败:', error);
@@ -329,7 +367,7 @@ export default {
         // 关闭删除对话框
         closeDeleteDialog() {
             this.showDeleteDialog = false;
-            this.merchantToDelete = null;
+            this.userToDelete = null;
         }
     }
 }
@@ -412,6 +450,10 @@ export default {
     margin-bottom: 24px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
 }
+/* 禁用标签页蓝条滑动动画（页面切换时组件重建会导致动画从错误位置开始） */
+.nav-tabs :deep(.el-tabs__active-bar) {
+    transition: none;
+}
 
 /* 页面标题区域 */
 .page-header {
@@ -422,6 +464,8 @@ export default {
     flex-wrap: wrap;
     gap: 16px;
 }
+
+.header-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 
 .page-title {
     margin: 0 0 8px 0;
@@ -448,7 +492,26 @@ export default {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
 }
 
-/* 商家列表区域 */
+.filter-options {
+    display: flex;
+    gap: 16px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-size: 14px;
+    color: #606266;
+    white-space: nowrap;
+}
+
+/* 用户列表区域 */
 .merchant-list-section {
     background: white;
     border-radius: 12px;

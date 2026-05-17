@@ -1,8 +1,9 @@
 package com.sadjier.interceptor;
 
+import com.sadjier.common.Result;
+import com.sadjier.enums.ResultStatusEnum;
+import com.sadjier.util.JsonUtil;
 import com.sadjier.util.JwtUtil;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.AllArgsConstructor;
@@ -16,7 +17,6 @@ import org.springframework.web.servlet.HandlerInterceptor;
 @AllArgsConstructor
 @Slf4j
 public class LoginInterceptor implements HandlerInterceptor {
-    private final JwtUtil jwtUtil;
     private final RedisTemplate<Object, Object> redisTemplate;
 
     /// <summary>请求前拦截</summary>
@@ -30,28 +30,33 @@ public class LoginInterceptor implements HandlerInterceptor {
         //获取请求头的Token
         String token = request.getHeader("Authorization");
 
-//        log.info("拦截请求:URI({}),方法({}),Token({})", request.getRequestURI(), request.getMethod(), token);
+        response.setContentType("application/json;charset=UTF-8");
+        response.setCharacterEncoding("UTF-8");
+        log.info("拦截请求:URI({}),方法({}),Token({})", request.getRequestURI(), request.getMethod(), token);
         //没有Token
         if (token == null) {
             response.setStatus(401);
-            response.getWriter().write("未登录，请先登录");
+            response.getWriter().write(JsonUtil.toJson(Result.result(ResultStatusEnum.TOKEN_MISSING)));
+            log.info("请求缺少Token");
             return false;
         }
 
         //截断黑名单中的token（自行退出登录）
         if(redisTemplate.hasKey(token)){
             response.setStatus(401);
-            response.getWriter().write("Token已过期，请重新登录");
+            response.getWriter().write(JsonUtil.toJson(Result.result(ResultStatusEnum.TOKEN_INVALID)));
+            log.info("该token已登出");
             return false;
         }
         //校验Token（过期/无效都会返回false）
-        if (!jwtUtil.validateToken(token)) {
+        if (!JwtUtil.validateToken(token)) {
             response.setStatus(401);
-            response.getWriter().write("Token已过期，请重新登录");
+            response.getWriter().write(JsonUtil.toJson(Result.result(ResultStatusEnum.TOKEN_INVALID)));
+            log.info("该token过期或无效,返回{}",JsonUtil.toJson(Result.result(ResultStatusEnum.TOKEN_INVALID)));
             return false;
         }
 
-//        log.info("请求通过:URI({}),方法({}),Token({})", request.getRequestURI(), request.getMethod(), token);
+        log.info("请求通过:URI({}),方法({}),Token({})", request.getRequestURI(), request.getMethod(), token);
         //校验通过，放行
         return true;
     }

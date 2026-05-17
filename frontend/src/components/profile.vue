@@ -29,7 +29,10 @@
         <!-- 标签栏导航 -->
         <el-tabs v-model="activeTab" class="nav-tabs" @tab-change="handleTabChange">
             <el-tab-pane label="商品管理" name="/goods/manage" />
-            <el-tab-pane v-if="currentUser?.role === 'ADMIN'" label="商家管理" name="/merchants/manage" />
+            <el-tab-pane label="订单管理" name="/orders/manage" />
+            <el-tab-pane v-if="currentUser?.role === 'MERCHANT'" label="店铺信息" name="/store/overview" />
+            <el-tab-pane v-if="currentUser?.role === 'ADMIN'" label="分类管理" name="/categories/manage" />
+            <el-tab-pane v-if="currentUser?.role === 'ADMIN'" label="用户管理" name="/merchants/manage" />
             <el-tab-pane label="个人信息" name="/profile" />
         </el-tabs>
 
@@ -128,6 +131,7 @@
 <script>
 import { useUserStore } from '@/pinia/userStores.js';
 import { userLogout, updateUserPassword, uploadUserAvatar, getAvatarUrl } from '@/api/index.js';
+import { processResult } from '@/axios/index.js';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { User, ArrowDown, SwitchButton, Camera } from '@element-plus/icons-vue';
 import router from '@/router';
@@ -190,10 +194,10 @@ export default {
         };
     },
     computed: {
-        // 当前激活的标签页
+        // 当前激活的标签页（跟随当前路由路径）
         activeTab: {
             get() {
-                return '/profile';
+                return this.$route.path;
             },
             set() {}
         },
@@ -286,18 +290,16 @@ export default {
             this.submitting = true;
             try {
                 const response = await updateUserPassword({
-                    username: this.currentUser.username,
                     oldPassword: this.form.oldPassword,
                     newPassword: this.form.newPassword
                 });
 
-                if (response.data.code === 1) {
-                    ElMessage.success('密码修改成功，请重新登录');
+                const result = processResult(response.data, '修改失败');
+                if (result.success) {
+                    ElMessage.success(result.msg || '密码修改成功，请重新登录');
                     const userStore = useUserStore();
                     userStore.logout();
                     router.push('/login');
-                } else {
-                    ElMessage.error(response.data.msg || '修改失败');
                 }
             } catch (error) {
                 console.error('修改失败:', error);
@@ -345,16 +347,14 @@ export default {
 
             try {
                 const response = await uploadUserAvatar({
-                    user_id: this.currentUser.userId,
                     file: params.file
                 });
 
-                if (response.data.code === 1) {
+                const result = processResult(response.data, '头像上传失败');
+                if (result.success) {
                     // 更新时间戳以破缓存刷新头像
                     this.avatar_timestamp = Date.now();
-                    ElMessage.success('头像更新成功');
-                } else {
-                    ElMessage.error(response.data.msg || '头像上传失败');
+                    ElMessage.success(result.msg || '头像更新成功');
                 }
             } catch (error) {
                 console.error('头像上传失败:', error);
@@ -402,13 +402,8 @@ export default {
 }
 
 /* 标签栏导航 */
-.nav-tabs {
-    background: white;
-    border-radius: 0 0 12px 12px;
-    padding: 0 24px;
-    margin-bottom: 24px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-}
+.nav-tabs { background: white; border-radius: 0 0 12px 12px; padding: 0 24px; margin-bottom: 24px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
+.nav-tabs :deep(.el-tabs__active-bar) { transition: none; }
 
 .nav-right {
     display: flex;

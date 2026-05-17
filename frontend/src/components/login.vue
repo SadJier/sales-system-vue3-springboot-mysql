@@ -100,6 +100,7 @@
 import router from '@/router';
 import { useUserStore } from '@/pinia/userStores.js';
 import { userLogin, userRegister } from '@/api/index.js';
+import { processResult } from '@/axios/index.js';
 import { ElMessage } from 'element-plus';
 
 export default {
@@ -200,18 +201,17 @@ export default {
                     password: this.form.password
                 });
 
-                if (res.data.code === 1) {
-                    const { userId, role, username, token } = res.data.data;
+                const result = processResult(res.data, '登录失败');
+                if (result.success) {
+                    const { userId, role, username, token } = result.data;
                     if (token) {
                         localStorage.setItem('token', token);
                         const userStore = useUserStore();
                         userStore.login({ userId, role, username, token });
                     }
 
-                    ElMessage.success('登录成功！');
+                    ElMessage.success(result.msg || '登录成功');
                     router.push('/goods/manage');
-                } else {
-                    ElMessage.error(res.data.msg || '账号或密码错误');
                 }
             } catch (err) {
                 console.error('登录请求失败:', err);
@@ -238,13 +238,12 @@ export default {
                     password: this.form.password
                 });
 
-                if (res.data.code === 1) {
-                    ElMessage.success(res.data.data || '注册成功，请登录');
+                const result = processResult(res.data, '注册失败');
+                if (result.success) {
+                    ElMessage.success(result.msg || '注册成功，请登录');
                     this.form.password = '';
                     this.form.confirmPassword = '';
-                    setTimeout(() => this.switchTab(false), 3000);
-                } else {
-                    ElMessage.error(res.data.msg || '注册失败，该账号已存在');
+                    this.switchTab(false);
                 }
             } catch (err) {
                 console.error('注册请求失败:', err);

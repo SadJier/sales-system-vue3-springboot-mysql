@@ -6,6 +6,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -23,15 +25,19 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "product_id")
     private Long productId;
+    /// <summary>商家唯一Id</summary>
     @ManyToOne
     @JoinColumn(name = "merchant_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private SysUser merchant;
     /// <summary>商品名称</summary>
     @Column(name = "name")
     private String name;
     /// <summary>商品分类</summary>
-    @Column(name = "category")
-    private String category;
+    @ManyToOne
+    @JoinColumn(name = "category_id", foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
+    @OnDelete(action = OnDeleteAction.SET_NULL)
+    private Category category;
     /// <summary>商品进价</summary>
     @Column(name = "purchase_price")
     private BigDecimal purchasePrice;

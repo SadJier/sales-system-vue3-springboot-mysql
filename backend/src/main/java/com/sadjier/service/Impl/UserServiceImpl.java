@@ -1,38 +1,37 @@
 package com.sadjier.service.Impl;
 
 import com.sadjier.dao.SysUserRepository;
-import com.sadjier.enums.UserRole;
-import com.sadjier.model.dto.UserLoginDTO;
-import com.sadjier.model.dto.UserRegisterDTO;
+import com.sadjier.enums.ResultStatusEnum;
+import com.sadjier.enums.UserRolesEnum;
 import com.sadjier.common.Result;
-import com.sadjier.model.dto.UserUpdatePasswordDTO;
-import com.sadjier.model.dto.UserUploadAvatarDTO;
+import com.sadjier.constant.ResultMsgConstant;
+import com.sadjier.model.dto.user.*;
 import com.sadjier.model.entity.SysUser;
-import com.sadjier.model.vo.SysUserVO;
-import com.sadjier.model.vo.UserLoginVO;
+import com.sadjier.model.vo.user.UserGetPageVO;
+import com.sadjier.model.vo.user.UserListItemVO;
+import com.sadjier.model.vo.user.UserLoginVO;
 import com.sadjier.service.UserService;
 import com.sadjier.util.CommonUtil;
 import com.sadjier.util.JwtUtil;
-import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.persistence.criteria.Predicate;
 import org.springframework.core.io.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.FileSystemResource;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.server.ResponseStatusException;
 
-import java.io.File;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /// <summary>用户业务实现</summary>
 @Service
@@ -42,52 +41,44 @@ public class UserServiceImpl implements UserService {
     /// <summary>系统用户仓储</summary>
     @Autowired
     @Schema(description = "系统用户仓储")
-    private SysUserRepository sys_user_repository;
+    private SysUserRepository sys_user_repo;
     /// <summary>密码加密器</summary>
     @Autowired
     @Schema(description = "密码加密器")
     private PasswordEncoder password_encoder;
-    /// <summary>令牌生成器</summary>
-    @Autowired
-    @Schema(description = "令牌生成器")
-    private JwtUtil jwt_util;
     /// <summary>redis</summary>
     @Autowired
     private RedisTemplate<Object, Object> redis_template;
 
     /// <summary>登录验证</summary>
-    @Operation(summary = "登录验证")
     public Result<UserLoginVO> login(UserLoginDTO dto) {
-        /// 用户名
+        // 用户名
         String user_name = dto.getUsername();
-        /// 密码
+        // 密码
         String password = dto.getPassword();
-        UserRole role = dto.getRole();
+        UserRolesEnum role = dto.getRole();
         log.info("用户登录请求:用户名({}),密码({}),身份({})", user_name,password,role);
-        if (!StringUtils.hasText(user_name) || !StringUtils.hasText(password)) {
-            return Result.error("用户名或密码不能为空");
-        }
-        /// 用户信息
-        SysUser sys_user = sys_user_repository.findByUserName(user_name);
+        // 用户信息
+        SysUser sys_user = sys_user_repo.findByUserName(user_name);
         if (sys_user == null || !sys_user.getRole().equals(role)) {
-            return Result.error("账号不存在");
+            return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.USER_NOT_FOUND);
         }
 //        if (!"ACTIVE".equals(sys_user.getStatus())) {
 //            return Result.error("账号已停用");
 //        }
         if (!password_encoder.matches(password, sys_user.getPassword())) {
-            return Result.error("密码错误");
+            return Result.result(ResultStatusEnum.ERROR,ResultMsgConstant.USER_PASSWORD_ERROR);
         }
         sys_user.setLoginTime(LocalDateTime.now());
-        sys_user_repository.save(sys_user);
-        /// 返回数据
+        sys_user_repo.save(sys_user);
+        // 返回数据
         UserLoginVO result_data = new UserLoginVO();
         result_data.setUserId(sys_user.getUserId());//可用于前端显示uid
         result_data.setUsername(sys_user.getUserName());
         result_data.setRole(sys_user.getRole());
-        String token = jwt_util.generateToken(user_name);
+        String token = JwtUtil.generateToken(sys_user.getUserId(), sys_user.getRole());
         result_data.setToken(token);
-        return Result.success(result_data);
+        return Result.success(result_data, ResultMsgConstant.USER_LOGIN_SUCCESS);
     }
     /// <summary>注册</summary>
     public Result<String> register(UserRegisterDTO dto) {
@@ -96,16 +87,12 @@ public class UserServiceImpl implements UserService {
         //密码
         String password = (String) dto.getPassword();
         //角色
-        UserRole role = dto.getRole();
+        UserRolesEnum role = dto.getRole();
         log.info("用户注册请求:用户名({}),密码({}),身份({})", user_name,password,role);
-
-        if (!StringUtils.hasText(user_name) || !StringUtils.hasText(password)) {
-            return Result.error("用户名或密码不能为空");
-        }
         //用户信息
-        SysUser exist_user = sys_user_repository.findByUserName(user_name);
+        SysUser exist_user = sys_user_repo.findByUserName(user_name);
         if (exist_user != null) {
-            return Result.error("用户名已存在");
+            return Result.result(ResultStatusEnum.ERROR,ResultMsgConstant.USER_NAME_ALREADY_EXISTS);
         }
         //新用户
         SysUser new_user = new SysUser();
@@ -114,79 +101,98 @@ public class UserServiceImpl implements UserService {
         new_user.setStatus("ACTIVE");//暂未启用
         new_user.setRole(role);
         new_user.setCreateTime(LocalDateTime.now());
-        sys_user_repository.save(new_user);
-        return Result.success("注册成功");
+        sys_user_repo.save(new_user);
+        return Result.success(ResultMsgConstant.USER_REGISTER_SUCCESS);
     }
     /// <summary>退出登录</summary>
     public Result<String> logout(String token) {
         if (token == null) {
-            return Result.success("退出登录成功");
+            return Result.success(ResultMsgConstant.USER_LOGOUT_SUCCESS);
         }
 
-        var claims = jwt_util.parseToken(token);
-        var username = jwt_util.getUsername(claims);
+        var claims = JwtUtil.parseToken(token);
+        var username = JwtUtil.getUsername(claims);
         log.info("用户({})登出",username);
         // TODO:让token过期的操作
-        redis_template.opsForValue().set(token,"logout", jwt_util.getRemainingTime(claims), java.util.concurrent.TimeUnit.MILLISECONDS);
-        return Result.success("退出登录成功");
+        redis_template.opsForValue().set(token,"logout", JwtUtil.getRemainingTime(claims), java.util.concurrent.TimeUnit.MILLISECONDS);
+        return Result.success(ResultMsgConstant.USER_LOGOUT_SUCCESS);
     }
-    /// <summary>用户名模糊查询</summary>
-    public Result<List<SysUserVO>> searchByUserName(String user_name) {
-        if (!StringUtils.hasText(user_name)) {
-            return Result.error("用户名不能为空");
-        }
-        /// <summary>用户列表</summary>
-        List<SysUserVO> user_list = sys_user_repository.findByUserNameContaining(user_name).stream().map(SysUserVO::new).toList();
-        return Result.success(user_list);
+    /// <summary>用户分页查询</summary>
+    public Result<UserGetPageVO> getUserPage(UserGetPageDTO dto) {
+//        log.info("分页查询用户");
+        //验证权限
+        var claims = JwtUtil.parseToken(CommonUtil.getToken());
+        if(!Objects.equals(JwtUtil.getUserRole(claims), UserRolesEnum.ADMIN))
+            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.USER_SEARCH_ONLY_ADMIN);
+        //页码默认值
+        int page_index = dto.getPageIndex() <= 0 ? 0 : dto.getPageIndex()-1;
+        //每页数量默认值
+        int page_size = dto.getPageSize() <= 0 ? 10 : dto.getPageSize();
+        //分页对象
+        PageRequest page_request = PageRequest.of(page_index, page_size);
+        //查询条件构造器
+        Specification<SysUser> user_specification = (root, query, criteria_builder) -> {
+            //条件集合
+            List<Predicate> predicate_list = new ArrayList<>();
+            if (StringUtils.hasText(dto.getUsername())) {
+                //名称条件
+//                log.info("查询条件:用户名包含({})", dto.getUsername());
+                Predicate name_predicate = criteria_builder.like(root.get("userName"), "%" + dto.getUsername() + "%");
+                predicate_list.add(name_predicate);
+            }
+            return criteria_builder.and(predicate_list.toArray(new Predicate[0]));
+        };
+        //查询结果
+        Page<SysUser> users_page = sys_user_repo.findAll(user_specification, page_request);
+        UserGetPageVO result_data = new UserGetPageVO();
+        result_data.setTotal(users_page.getTotalElements());
+        result_data.setItems(users_page.stream().map(UserListItemVO::new).toList());
+        return Result.success(result_data);
     }
     /// <summary>更改密码</summary>
     @Transactional(rollbackFor = Exception.class)
     public Result<String> updatePassword(UserUpdatePasswordDTO dto) {
-        var username = dto.getUsername();
+        var user_id = JwtUtil.getUserId(CommonUtil.getToken());
+        if(user_id == null) return Result.result(ResultStatusEnum.DATA_MISSING,ResultMsgConstant.TOKEN_LOCAL_INVALID);
         String old_password = dto.getOldPassword();
         String new_password = dto.getNewPassword();
-        log.info("用户更新密码请求:用户名({}),旧密码({}),新密码({})", username,old_password,new_password);
-        SysUser sys_user = sys_user_repository.findByUserName(username);
+        log.info("用户更新密码请求:userid({}),旧密码({}),新密码({})", user_id,old_password,new_password);
+        SysUser sys_user = sys_user_repo.findByUserId(user_id);
         if (sys_user == null) {
-            return Result.error("账号不存在");
+            return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.USER_NOT_FOUND);
         }
         if (!password_encoder.matches(old_password, sys_user.getPassword())) {
-            return Result.error("旧密码错误");
+            return Result.result(ResultStatusEnum.DATA_INVALID,ResultMsgConstant.USER_OLD_PASSWORD_ERROR);
         }
         if(!password_encoder.matches(new_password, sys_user.getPassword())) {
-            return Result.error("新密码不能与旧密码相同");
+            return Result.result(ResultStatusEnum.DATA_INVALID,ResultMsgConstant.USER_NEW_PASSWORD_SAME_AS_OLD);
         }
         sys_user.setPassword(password_encoder.encode(new_password));
-        sys_user_repository.save(sys_user);
-        return Result.success("密码更新成功");
+        sys_user_repo.save(sys_user);
+        return Result.success(ResultMsgConstant.USER_PASSWORD_UPDATE_SUCCESS);
     }
     /// <summary>上传头像</summary>
     public Result<String> uploadAvatar(UserUploadAvatarDTO dto) {
-        String absolute_path = CommonUtil.getAvatarFolderPath();
-        log.info("用户ID({})上传头像", dto.getUserId());
-        File folder = new File(absolute_path);
-        if (!folder.exists()) {
-            folder.mkdirs();
-        }
+        var user_id = JwtUtil.getUserId();
+        log.info("用户ID({})上传头像", user_id);
 
-        String file_name = dto.getUserId() + ".jpg";
-        File dest_file = new File(absolute_path + "/" + file_name);
-        try{
-            dto.getFile().transferTo(dest_file);
-        }catch (Exception e){
-            log.error("上传头像失败:{}",e.getMessage());
-            return Result.error("头像上传失败");
-        }
-        return Result.success("头像上传成功");
+        if(!CommonUtil.uploadUserAvatar(user_id, dto.getFile()))
+            return Result.result(ResultStatusEnum.ERROR,ResultMsgConstant.USER_AVATAR_UPLOAD_FAILED);
+        return Result.success(ResultMsgConstant.USER_AVATAR_UPLOAD_SUCCESS);
     }
     /// <summary>获取头像</summary>
     public Resource getAvatar(Long user_id) {
-        String absolute_path = CommonUtil.getAvatarFolderPath();
-        String file_name = user_id + ".jpg";//当前只有Jpg
-        File avatar_file = new File(absolute_path + "/" + file_name);
-        if (!avatar_file.exists()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "找不到头像");
-        }
-        return new FileSystemResource(avatar_file);
+        return CommonUtil.getUserAvatar(user_id);
+    }
+    /// <summary>删除用户</summary>
+    public Result<String> deleteUser(Long user_id){
+        //验证权限
+        var claims = JwtUtil.parseToken(CommonUtil.getToken());
+        var role = JwtUtil.getUserRole(claims);
+        if(role != UserRolesEnum.ADMIN) return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.USER_DELETE_ONLY_ADMIN);
+        if(user_id == null) return Result.result(ResultStatusEnum.DATA_INVALID,ResultMsgConstant.USER_INVALID);
+        if(sys_user_repo.findByUserId(user_id) == null) return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.USER_NOT_FOUND);
+        sys_user_repo.deleteById(user_id);
+        return Result.success(ResultMsgConstant.USER_DELETE_SUCCESS);
     }
 }

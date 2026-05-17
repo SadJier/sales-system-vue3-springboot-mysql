@@ -29,7 +29,10 @@
         <!-- 标签栏导航 -->
         <el-tabs v-model="activeTab" class="nav-tabs" @tab-change="handleTabChange">
             <el-tab-pane label="商品管理" name="/goods/manage" />
-            <el-tab-pane v-if="currentUser?.role === 'ADMIN'" label="商家管理" name="/merchants/manage" />
+            <el-tab-pane label="订单管理" name="/orders/manage" />
+            <el-tab-pane v-if="currentUser?.role === 'MERCHANT'" label="店铺信息" name="/store/overview" />
+            <el-tab-pane v-if="currentUser?.role === 'ADMIN'" label="分类管理" name="/categories/manage" />
+            <el-tab-pane v-if="currentUser?.role === 'ADMIN'" label="用户管理" name="/merchants/manage" />
             <el-tab-pane label="个人信息" name="/profile" />
         </el-tabs>
 
@@ -88,22 +91,26 @@
                 placeholder="搜索商品（名称、分类）"
                 clearable
                 size="large"
-                @input="handleSearch"
+                @keyup.enter="handleSearch"
+                @clear="handleSearch"
             >
                 <template #prefix>
                     <el-icon><Search /></el-icon>
+                </template>
+                <template #append>
+                    <el-button @click="handleSearch" :loading="loading">搜索</el-button>
                 </template>
             </el-input>
 
             <div class="filter-options">
                 <div class="filter-group">
                     <label>分类筛选：</label>
-                    <el-select v-model="selectedCategory" placeholder="全部分类" clearable size="default" @change="handleSearch">
+                    <el-select v-model="selectedCategoryId" placeholder="全部分类" clearable size="default" style="min-width: 140px;" @change="handleSearch">
                         <el-option
-                            v-for="category in categories"
-                            :key="category"
-                            :label="category"
-                            :value="category"
+                            v-for="category in categoryList"
+                            :key="category.categoryId"
+                            :label="category.name"
+                            :value="category.categoryId"
                         />
                     </el-select>
                 </div>
@@ -120,23 +127,13 @@
                 <h3>商品列表</h3>
                 <div class="list-stats">
                     共 {{ filteredProducts.length }} 件商品
-                    <el-tag v-if="searchQuery || selectedCategory" type="info" size="small" style="margin-left: 8px;">
+                    <el-tag v-if="searchQuery || selectedCategoryId" type="info" size="small" style="margin-left: 8px;">
                         已筛选
                     </el-tag>
                 </div>
             </div>
 
-            <el-empty
-                v-if="!loading && filteredProducts.length === 0"
-                :description="(searchQuery || selectedCategory) ? '未找到符合条件的商品' : '暂无商品数据'"
-            >
-                <el-button v-if="searchQuery || selectedCategory" @click="clearFilters">
-                    清空筛选条件
-                </el-button>
-            </el-empty>
-
             <el-table
-                v-else
                 :data="filteredProducts"
                 stripe
                 border
@@ -144,11 +141,12 @@
                 style="width: 100%"
             >
                 <el-table-column prop="productId" label="商品ID" width="100" />
+                <el-table-column v-if="currentUser?.role === 'ADMIN'" prop="merchantName" label="商家" width="120" />
                 <el-table-column label="图片" width="80" align="center">
                     <template #default="{ row }">
                         <el-image
                             v-if="row.productId"
-                            :src="getProductImageUrl(row.productId)"
+                            :src="getProductImageUrl(row.productId) + '?t=' + product_list_image_ts"
                             style="width: 50px; height: 50px;"
                             fit="cover"
                         >
@@ -160,12 +158,13 @@
                 </el-table-column>
                 <el-table-column prop="name" label="商品名称">
                     <template #default="{ row }">
-                        <strong>{{ row.name }}</strong>
+                        <el-link type="primary" @click="goToProductDetail(row.productId)">{{ row.name }}</el-link>
                     </template>
                 </el-table-column>
                 <el-table-column prop="category" label="分类" width="100">
                     <template #default="{ row }">
-                        <el-tag size="small">{{ row.category }}</el-tag>
+                        <el-tag v-if="row.categoryId && getCategoryName(row.categoryId)" size="small">{{ getCategoryName(row.categoryId) }}</el-tag>
+                        <el-tag v-else size="small" type="info">无分类</el-tag>
                     </template>
                 </el-table-column>
                 <el-table-column label="进价" width="100" align="right">
@@ -197,6 +196,15 @@
                 </el-table-column>
             </el-table>
 
+            <el-empty
+                v-if="!loading && productList.length === 0"
+                :description="(searchQuery || selectedCategoryId) ? '未找到符合条件的商品' : '暂无商品数据'"
+            >
+                <el-button v-if="searchQuery || selectedCategoryId" @click="clearFilters">
+                    清空筛选条件
+                </el-button>
+            </el-empty>
+
             <!-- 分页组件 -->
             <div class="pagination-wrapper" v-if="totalPages > 1">
                 <el-pagination
@@ -216,24 +224,17 @@
             width="700px"
             :close-on-click-modal="false"
         >
-            <el-form :model="form" label-width="100px" ref="productFormRef">
+            <el-form :model="form" label-width="100px" ref="productFormRef" @submit.prevent="submitProductForm">
                 <div class="form-grid">
                     <el-form-item label="商品名称" required>
-                        <el-input v-model="form.name" placeholder="请输入商品名称" />
+                        <el-input v-model="form.name" placeholder="请输入商品名称" @keyup.enter="submitProductForm" />
                     </el-form-item>
 
                     <el-form-item label="分类" required>
-                        <el-select v-model="form.category" placeholder="请选择分类" style="width: 100%;" @change="onCategoryChange">
-                            <el-option value="" label="请选择分类" disabled />
-                            <el-option v-for="cat in categories" :key="cat" :label="cat" :value="cat" />
-                            <el-option value="__new__" label="新建分类" />
+                        <el-select v-model="form.categoryId" placeholder="请选择分类" style="width: 100%;">
+                            <el-option :value="null" label="请选择分类" disabled />
+                            <el-option v-for="cat in categoryList" :key="cat.categoryId" :label="cat.name" :value="cat.categoryId" />
                         </el-select>
-                        <el-input
-                            v-if="form.category === '__new__'"
-                            v-model="newCategory"
-                            placeholder="请输入新分类名称"
-                            style="margin-top: 8px;"
-                        />
                     </el-form-item>
 
                     <el-form-item label="进价" required>
@@ -325,7 +326,8 @@ import { useUserStore } from '@/pinia/userStores.js';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Search, User, ArrowDown, SwitchButton, Plus } from '@element-plus/icons-vue';
 import router from '@/router';
-import { userLogout, getProductList, createProduct, updateProduct, deleteProduct, getAvatarUrl, uploadProductImage, getProductImageUrl } from '@/api/index.js';
+import { processResult } from '@/axios/index.js';
+import { userLogout, getProductList, createProduct, updateProduct, deleteProduct, getAvatarUrl, uploadProductImage, getProductImageUrl, getCategoryList } from '@/api/index.js';
 
 export default {
     name: 'ProductManagement',
@@ -337,7 +339,7 @@ export default {
             // 商品数据
             productList: [],
             searchQuery: '',
-            selectedCategory: '',
+            selectedCategoryId: '',
 
             // 分页
             currentPage: 1,
@@ -350,13 +352,11 @@ export default {
             // 表单数据
             form: {
                 name: '',
-                category: '',
+                categoryId: null,
                 purchasePrice: 0,
                 salePrice: 0,
                 stock: 0
             },
-            // 新建分类名称
-            newCategory: '',
             // 编辑时的商品ID
             editingProductId: null,
 
@@ -367,17 +367,25 @@ export default {
 
             // 待删除商品
             productToDelete: null,
+            // 待上传的商品图片文件
+            pending_image_file: null,
             // 头像时间戳（用于破缓存刷新头像）
             avatar_timestamp: Date.now(),
             // 商品图片时间戳（用于破缓存刷新商品图片）
-            product_image_timestamp: Date.now()
+            product_image_timestamp: Date.now(),
+            // 商品列表图片时间戳（用于破缓存刷新列表中的商品图片）
+            product_list_image_ts: Date.now(),
+            // 分类列表（从后端获取）
+            categoryList: [],
+            // 分类id到名称的映射
+            categoryMap: {}
         }
     },
     computed: {
-        // 当前激活的标签页
+        // 当前激活的标签页（跟随当前路由路径）
         activeTab: {
             get() {
-                return '/goods/manage';
+                return this.$route.path;
             },
             set() {}
         },
@@ -392,6 +400,9 @@ export default {
 
         // 编辑时商品图片预览URL
         productImagePreviewUrl() {
+            if (this.pending_image_file) {
+                return URL.createObjectURL(this.pending_image_file);
+            }
             if (this.editingProductId) {
                 return getProductImageUrl(this.editingProductId) + `?t=${this.product_image_timestamp}`;
             }
@@ -399,26 +410,11 @@ export default {
         },
 
         categories() {
-            const categories = new Set(this.productList.map(product => product.category).filter(Boolean))
-            return Array.from(categories).sort()
+            return this.categoryList.map(c => c.name);
         },
 
         filteredProducts() {
-            let products = [...this.productList]
-
-            if (this.searchQuery) {
-                const query = this.searchQuery.toLowerCase()
-                products = products.filter(product =>
-                    product.name.toLowerCase().includes(query) ||
-                    (product.category && product.category.toLowerCase().includes(query))
-                )
-            }
-
-            if (this.selectedCategory) {
-                products = products.filter(product => product.category === this.selectedCategory)
-            }
-
-            return products
+            return this.productList
         },
 
         totalProducts() {
@@ -439,11 +435,37 @@ export default {
     },
     mounted() {
         this.loadUserInfo();
-        this.loadProducts()
+        this.loadProducts();
+        this.loadCategories();
     },
     methods: {
         // 获取商品图片URL
         getProductImageUrl,
+
+        // 获取分类名称
+        getCategoryName(categoryId) {
+            return this.categoryMap[categoryId] || '';
+        },
+
+        // 加载分类列表
+        async loadCategories() {
+            try {
+                const response = await getCategoryList();
+                const result = processResult(response.data, '获取分类列表失败');
+                if (result.success) {
+                    const res_data = result.data;
+                    if (res_data && Array.isArray(res_data.categories)) {
+                        this.categoryList = res_data.categories;
+                        this.categoryMap = res_data.categories.reduce((map, cat) => {
+                            map[cat.categoryId] = cat.name;
+                            return map;
+                        }, {});
+                    }
+                }
+            } catch (error) {
+                console.error('获取分类列表失败:', error);
+            }
+        },
 
         // 加载当前用户信息
         loadUserInfo() {
@@ -466,6 +488,11 @@ export default {
             if (tab !== '/goods/manage') {
                 router.push(tab);
             }
+        },
+
+        // 跳转到商品详情页
+        goToProductDetail(product_id) {
+            router.push(`/goods/detail/${product_id}`);
         },
 
         /**
@@ -496,20 +523,19 @@ export default {
             this.loading = true
             try {
                 const response = await getProductList({
-                    productName: '',
-                    category: '',
+                    productName: this.searchQuery || '',
+                    categoryId: this.selectedCategoryId || '',
                     pageIndex: 1,
                     pageSize: 20
                 })
-                if (response.data.code === 1) {
-                    const res_data = response.data.data;
+                const result = processResult(response.data, '加载商品数据失败')
+                if (result.success) {
+                    const res_data = result.data;
                     if (res_data && Array.isArray(res_data.items)) {
                         this.productList = res_data.items;
                     } else {
                         this.productList = [];
                     }
-                } else {
-                    ElMessage.error(response.data.msg || '加载商品数据失败')
                 }
             } catch (error) {
                 console.error('加载商品数据失败:', error)
@@ -521,21 +547,17 @@ export default {
 
         handleSearch() {
             this.currentPage = 1
+            this.loadProducts()
         },
 
         clearFilters() {
             this.searchQuery = ''
-            this.selectedCategory = ''
+            this.selectedCategoryId = ''
             this.currentPage = 1
+            this.loadProducts()
         },
 
         // 分类选择变化
-        onCategoryChange(val) {
-            if (val !== '__new__') {
-                this.newCategory = ''
-            }
-        },
-
         handleAddProduct() {
             this.isEditing = false
             this.editingProductId = null
@@ -546,9 +568,10 @@ export default {
         handleEditProduct(product) {
             this.isEditing = true
             this.editingProductId = product.productId
+            this.pending_image_file = null
             this.form = {
                 name: product.name,
-                category: product.category,
+                categoryId: product.categoryId,
                 purchasePrice: product.purchasePrice,
                 salePrice: product.salePrice,
                 stock: product.stock
@@ -570,24 +593,40 @@ export default {
             this.submitting = true
 
             try {
-                const formData = { ...this.form }
-                if (formData.category === '__new__' && this.newCategory) {
-                    formData.category = this.newCategory
-                }
-
                 let response
                 if (this.isEditing) {
-                    response = await updateProduct(this.editingProductId, formData)
+                    response = await updateProduct({ productId: this.editingProductId, ...this.form })
                 } else {
-                    response = await createProduct(formData)
+                    response = await createProduct(this.form)
                 }
 
-                if (response.data.code === 1) {
-                    ElMessage.success(this.isEditing ? '商品更新成功' : '商品添加成功')
+                const result = processResult(response.data, '操作失败')
+                if (result.success) {
+                    // 编辑时如果有待上传图片，先上传图片
+                    if (this.isEditing && this.pending_image_file) {
+                        try {
+                            const img_response = await uploadProductImage({
+                                product_id: this.editingProductId,
+                                file: this.pending_image_file
+                            });
+                            const img_result = processResult(img_response.data, '图片上传失败');
+                            if (img_result.success) {
+                                this.product_image_timestamp = Date.now();
+                                this.product_list_image_ts = Date.now();
+                            }
+                        } catch (error) {
+                            console.error('图片上传失败:', error);
+                            ElMessage.error('商品信息已更新，但图片上传失败');
+                            this.submitting = false;
+                            this.pending_image_file = null;
+                            this.loadProducts();
+                            return;
+                        }
+                    }
+                    this.pending_image_file = null;
+                    ElMessage.success(result.msg || (this.isEditing ? '商品更新成功' : '商品添加成功'))
                     this.closeProductDialog()
                     this.loadProducts()
-                } else {
-                    ElMessage.error(response.data.msg || '操作失败')
                 }
             } catch (error) {
                 console.error('操作失败:', error)
@@ -605,12 +644,11 @@ export default {
             try {
                 const response = await deleteProduct(this.productToDelete.productId)
 
-                if (response.data.code === 1) {
-                    ElMessage.success('商品删除成功')
+                const result = processResult(response.data, '删除失败')
+                if (result.success) {
+                    ElMessage.success(result.msg || '商品删除成功')
                     this.closeDeleteDialog()
                     this.loadProducts()
-                } else {
-                    ElMessage.error(response.data.msg || '删除失败')
                 }
             } catch (error) {
                 console.error('删除失败:', error)
@@ -626,8 +664,8 @@ export default {
                 return false
             }
 
-            if (!this.form.category.trim() || (this.form.category === '__new__' && !this.newCategory.trim())) {
-                ElMessage.warning('请选择或输入分类')
+            if (!this.form.categoryId) {
+                ElMessage.warning('请选择分类')
                 return false
             }
 
@@ -652,16 +690,16 @@ export default {
         resetForm() {
             this.form = {
                 name: '',
-                category: '',
+                categoryId: null,
                 purchasePrice: 0,
                 salePrice: 0,
                 stock: 0
             }
-            this.newCategory = ''
         },
 
         closeProductDialog() {
             this.showProductDialog = false
+            this.pending_image_file = null
             this.resetForm()
         },
 
@@ -694,28 +732,11 @@ export default {
         },
 
         /**
-         * 自定义商品图片上传（编辑时，需productId和merchantId）
+         * 选择商品图片时保存文件引用（不立即上传，等点击更新时再上传）
          * @param {Object} params 上传参数
          */
-        async handleProductImageUpload(params) {
-            try {
-                const response = await uploadProductImage({
-                    product_id: this.editingProductId,
-                    merchant_id: this.currentUser.userId,
-                    file: params.file
-                });
-
-                if (response.data.code === 1) {
-                    // 更新时间戳以破缓存刷新商品图片
-                    this.product_image_timestamp = Date.now();
-                    ElMessage.success('图片上传成功');
-                } else {
-                    ElMessage.error(response.data.msg || '图片上传失败');
-                }
-            } catch (error) {
-                console.error('图片上传失败:', error);
-                ElMessage.error('图片上传失败，请稍后重试');
-            }
+        handleProductImageUpload(params) {
+            this.pending_image_file = params.file;
         }
     }
 }
@@ -797,6 +818,10 @@ export default {
     padding: 0 24px;
     margin-bottom: 24px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+/* 禁用标签页蓝条滑动动画（页面切换时组件重建会导致动画从错误位置开始） */
+.nav-tabs :deep(.el-tabs__active-bar) {
+    transition: none;
 }
 
 /* 页面标题区域 */
