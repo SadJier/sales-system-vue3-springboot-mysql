@@ -9,24 +9,24 @@
 - **商品分类管理**：分类增删改查（管理员）
 - **订单管理**：订单增删改查、分页查询、状态更新
 - **店铺统计**：订单统计、收入统计、商品销售占比
-- **权限控制**：商家/管理员角色区分，JWT 认证，路由守卫保护
+- **权限控制**：商家/管理员角色区分，双Token认证（AccessToken + RefreshToken），@RequireRole注解权限校验，路由守卫保护
 
 ## 技术栈
 
 ### 后端
 
-| 技术                   | 说明               |
-| ---------------------- | ------------------ |
-| Java 17                | 开发语言           |
-| Spring Boot 3.2.5      | 后端框架           |
-| Spring Data JPA        | 数据库 ORM         |
-| MySQL                  | 数据库             |
-| Spring Security Crypto | 密码加密（BCrypt） |
-| JWT (jjwt 0.11.5)      | 用户认证令牌       |
-| Spring Data Redis      | Token 黑名单缓存   |
-| Knife4j (OpenAPI 3)    | API 接口文档       |
-| Lombok                 | 简化实体类代码     |
-| Maven                  | 项目构建工具       |
+| 技术                   | 说明                      |
+| ---------------------- | ------------------------- |
+| Java 17                | 开发语言                  |
+| Spring Boot 3.2.5      | 后端框架                  |
+| Spring Data JPA        | 数据库 ORM                |
+| MySQL                  | 数据库                    |
+| Spring Security Crypto | 密码加密（BCrypt）        |
+| JWT (jjwt 0.11.5)      | 用户认证令牌              |
+| Spring Data Redis      | Token白名单与刷新令牌缓存 |
+| Knife4j (OpenAPI 3)    | API 接口文档              |
+| Lombok                 | 简化实体类代码            |
+| Maven                  | 项目构建工具              |
 
 ### 前端
 
@@ -64,12 +64,14 @@ sales_system/
 │       │   └── vo/                   #   响应VO（按模块分子包）
 │       ├── service/                  # 业务逻辑层
 │       │   └── Impl/                 #   实现类
-│       ├── interceptor/              # 登录拦截器
+│       ├── interceptor/              # 拦截器（Token白名单校验、权限校验）
+│       ├── annotations/              # 自定义注解（@RequireRole）
 │       ├── enums/                    # 枚举（订单状态、用户角色、结果状态）
 │       ├── constant/                 # 常量（返回消息）
 │       ├── util/                     # 工具类（JWT、通用工具、JSON）
 │       ├── common/                   # 公共类（统一响应结果）
 │       └── exception/                # 全局异常处理
+│       └── aop/                      # AOP 配置（日志记录）
 ├── frontend/                         # 前端项目
 │   └── src/
 │       ├── api/                      # API 接口定义
@@ -86,6 +88,7 @@ sales_system/
 | ---- | ------ | ------------------------------- | ------------ |
 | 用户 | POST   | `/api/users/login`              | 登录         |
 | 用户 | POST   | `/api/users/register`           | 注册         |
+| 用户 | POST   | `/api/users/refresh`            | 刷新访问令牌 |
 | 用户 | POST   | `/api/users/logout`             | 退出登录     |
 | 用户 | PUT    | `/api/users/update/password`    | 修改密码     |
 | 用户 | POST   | `/api/users/upload/avatar`      | 上传头像     |
@@ -117,7 +120,7 @@ sales_system/
 | JDK     | 17 或以上        | 运行后端                             |
 | Node.js | 20.19+ 或 22.12+ | 运行前端                             |
 | MySQL   | 5.7+ 或 8.0+     | 数据库                               |
-| Redis   | 任意稳定版       | 缓存（Token黑名单）                  |
+| Redis   | 任意稳定版       | 缓存（Token白名单、刷新令牌）        |
 | Maven   | 3.6+             | 后端构建（项目自带 wrapper，可不装） |
 
 ### 第一步：配置数据库
@@ -137,6 +140,15 @@ spring.datasource.password=你的密码
 
 > JPA 会根据实体类自动创建数据表，无需手动建表。
 
+3. 修改 `application.properties` 中的 JWT 密钥和 SSL 证书密码：
+
+```properties
+jwt.secret=你的JWT密钥
+server.ssl.key-store-password=你的证书密码
+```
+
+> 项目提供了 `application.properties.example` 模板文件，使用时需移除 `.example` 后缀。SSL 证书文件为 `backend/src/main/resources/localhost.jks`，生产环境请替换为正式证书。
+
 ### 第二步：启动 Redis
 
 找到 Redis 安装目录，运行 `redis-server.exe`（Windows）或 `redis-server`（Linux/Mac）。
@@ -155,9 +167,9 @@ mvnw.cmd spring-boot:run
 mvn spring-boot:run
 ```
 
-后端启动成功后，默认运行在 `http://localhost:8080`。
+后端启动成功后，默认运行在 `https://localhost`（HTTPS，端口443）。
 
-API 文档访问地址：`http://localhost:8080/doc.html`
+API 文档访问地址：`https://localhost/doc.html`
 
 ### 第四步：启动前端
 
