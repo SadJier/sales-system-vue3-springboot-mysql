@@ -4,6 +4,8 @@ import com.sadjier.common.Result;
 import com.sadjier.model.dto.user.*;
 import com.sadjier.model.vo.user.UserGetPageVO;
 import com.sadjier.model.vo.user.UserLoginVO;
+import com.sadjier.model.vo.user.TokenRefreshVO;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.io.Resource;
 
 /// <summary>用户业务接口</summary>
@@ -24,4 +26,6 @@ public interface UserService {
     Resource getAvatar(Long user_id);
     /// <summary>删除用户</summary>
     Result<String> deleteUser(Long user_id);
+    /// <summary>刷新访问令牌</summary>
+    Result<TokenRefreshVO> refreshToken(String refresh_token);
 }

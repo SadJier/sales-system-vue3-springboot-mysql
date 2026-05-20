@@ -1,8 +1,9 @@
 import axios from 'axios';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessageBox } from 'element-plus';
+import { refreshToken as refreshTokenApi } from '@/api/index.js';
 
 let config = {
-    baseURL:"http://localhost:8080",//要连接的后端url
+    baseURL:"https://localhost",//要连接的后端url
     timeout:60000,
     withCredentials:true
 }
@@ -11,31 +12,34 @@ const axiosInstance = axios.create(config)
 
 // 操作成功
 const CODE_SUCCESS = 200;
-// 操作出错
-const CODE_ERROR = 400;
-// 数据不存在
-const CODE_NO_DATA = 401;
-// 数据重复
-const CODE_DATA_DUPLICATE = 402;
-// 无数据操作权限
-const CODE_DATA_NO_PERMISSION = 403;
-// 数据缺失或无效
-const CODE_DATA_MISSING = 404;
 // Token过期或无效
 const CODE_TOKEN_INVALID = 1001;
 // Token缺失
 const CODE_TOKEN_MISSING = 1002;
-// 无操作权限
-const CODE_NO_PERMISSION = 1101;
 // 防止多次触发登出逻辑的标记
 let is_logging_out = false;
+// 是否正在刷新令牌
+let is_refreshing = false;
+// 等待令牌刷新的请求队列
+let refresh_subscribers = [];
 
-// 强制登出处理（token过期/缺失时调用，弹出确认框后清空数据并跳转登录页）
-function handleForceLogout(msg) {
+// 将等待中的请求加入队列
+function subscribeTokenRefresh(callback) {
+    refresh_subscribers.push(callback);
+}
+
+// 令牌刷新成功后，执行队列中的请求
+function onTokenRefreshed(new_token) {
+    refresh_subscribers.forEach(callback => callback(new_token));
+    refresh_subscribers = [];
+}
+
+// 强制登出处理（refreshToken也过期时调用）
+function handleForceLogout() {
     if (is_logging_out) return;
     is_logging_out = true;
     ElMessageBox.alert(
-        msg || '登录已过期，请重新登录',
+        '登录已过期，请重新登录',
         '登录过期',
         {
             confirmButtonText: '确定',
@@ -57,15 +61,9 @@ function isTokenCode(code) {
     return code === CODE_TOKEN_INVALID || code === CODE_TOKEN_MISSING;
 }
 
-// 检查是否为权限相关状态码
-function isPermissionCode(code) {
-    return code === CODE_NO_PERMISSION || code === CODE_DATA_NO_PERMISSION;
-}
-
 // 处理Result响应，按业务状态码分类处理，返回结构化结果
 function processResult(res_data, fallback_msg) {
     if (!res_data) {
-        if (!is_logging_out) ElMessage.error(fallback_msg || '操作失败');
         return { success: false, data: null, msg: fallback_msg || '操作失败' };
     }
 
@@ -75,19 +73,12 @@ function processResult(res_data, fallback_msg) {
         return { success: true, data: res_data.data, msg: res_data.msg };
     }
 
-    // Token相关：已由拦截器处理登出，此处仅返回失败
+    // Token相关：由拦截器处理，此处仅返回失败
     if (isTokenCode(code)) {
         return { success: false, data: null, msg: res_data.msg };
     }
 
-    // 权限相关
-    if (isPermissionCode(code)) {
-        if (!is_logging_out) ElMessage.error(res_data.msg || '无操作权限');
-        return { success: false, data: null, msg: res_data.msg };
-    }
-
-    // 其他业务错误（400/401/402/404等）
-    if (!is_logging_out) ElMessage.error(res_data.msg || fallback_msg || '操作失败');
+    // 其他业务错误
     return { success: false, data: null, msg: res_data.msg };
 }
 
@@ -105,12 +96,45 @@ axiosInstance.interceptors.request.use(
     }
 )
 
-// 响应拦截器：仅处理Token相关状态码的强制登出
+// 响应拦截器：处理Token过期自动刷新
 axiosInstance.interceptors.response.use(
     (response) => {
         const res_data = response.data;
         if (res_data && isTokenCode(res_data.code)) {
-            handleForceLogout(res_data.msg);
+            //访问令牌过期，尝试用cookie中的refreshToken刷新
+            if (is_refreshing) {
+                //正在刷新中，将请求加入队列等待
+                return new Promise((resolve) => {
+                    subscribeTokenRefresh((new_token) => {
+                        response.config.headers.Authorization = new_token;
+                        resolve(axiosInstance(response.config));
+                    });
+                });
+            }
+            is_refreshing = true;
+            return refreshTokenApi()
+                .then((refresh_res) => {
+                    const refresh_result = refresh_res.data;
+                    if (refresh_result && refresh_result.code === CODE_SUCCESS && refresh_result.data) {
+                        const new_access_token = refresh_result.data.accessToken;
+                        localStorage.setItem('token', new_access_token);
+                        onTokenRefreshed(new_access_token);
+                        //重试原请求
+                        response.config.headers.Authorization = new_access_token;
+                        return axiosInstance(response.config);
+                    } else {
+                        //刷新令牌也失效，强制登出
+                        handleForceLogout();
+                        return response;
+                    }
+                })
+                .catch(() => {
+                    handleForceLogout();
+                    return response;
+                })
+                .finally(() => {
+                    is_refreshing = false;
+                });
         }
         return response;
     },
@@ -121,7 +145,7 @@ axiosInstance.interceptors.response.use(
         if (error.response && error.response.data) {
             const res_data = error.response.data;
             if (isTokenCode(res_data.code)) {
-                handleForceLogout(res_data.msg);
+                handleForceLogout();
                 return new Promise(() => {});
             }
         }

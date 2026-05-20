@@ -6,6 +6,8 @@ const API = {
     USER_LOGIN: '/api/users/login',
     USER_REGISTER: '/api/users/register',
     USER_LOGOUT: '/api/users/logout',
+    // 令牌刷新
+    USER_TOKEN_REFRESH: '/api/users/refresh',
     USER_UPDATE_PASSWORD: '/api/users/update/password',
     USER_UPLOAD_AVATAR: '/api/users/upload/avatar',
     // 用户名模糊查询
@@ -24,14 +26,14 @@ const API = {
     // 商品图片上传
     PRODUCT_UPLOAD_IMAGE: '/api/products/upload/products',
     // 商品图片获取（按商品ID）
-    PRODUCT_IMAGE_URL: (product_id) => `http://localhost:8080/api/products/image/${product_id}`,
+    PRODUCT_IMAGE_URL: (product_id) => `https://localhost/api/products/image/${product_id}`,
     // 客户相关
     CUSTOMER_LIST: '/api/customers',
     CUSTOMER_CREATE: '/api/customers',
     CUSTOMER_UPDATE: (customer_id) => `/api/customers/${customer_id}`,
     CUSTOMER_DELETE: (customer_id) => `/api/customers/${customer_id}`,
     // 头像获取
-    AVATAR_URL: (user_id) => `http://localhost:8080/api/users/avatars/${user_id}`,
+    AVATAR_URL: (user_id) => `https://localhost/api/users/avatars/${user_id}`,
     // 订单相关
     ORDER_LIST: '/api/orders',
     ORDER_CREATE: '/api/orders',
@@ -74,6 +76,13 @@ export function userRegister({ role, username, password }) {
 // 用户退出登录
 export function userLogout() {
     return http.post(API.USER_LOGOUT);
+}
+
+/**
+ * 刷新访问令牌（refreshToken从cookie自动携带）
+ */
+export function refreshToken() {
+    return http.post(API.USER_TOKEN_REFRESH, {}, { withCredentials: true });
 }
 
 /**

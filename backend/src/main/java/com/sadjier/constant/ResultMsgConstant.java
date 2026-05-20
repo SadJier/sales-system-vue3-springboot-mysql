@@ -27,6 +27,9 @@ public final class ResultMsgConstant{
     public static final String USER_SEARCH_ONLY_ADMIN = "只有管理员可以查询用户";
     public static final String USER_DELETE_ONLY_ADMIN = "只有管理员可以删除用户";
     public static final String USER_DELETE_SUCCESS = "用户删除成功";
+    public static final String USER_FRONTEND_SALT_REQUIRED = "前端盐值不能为空";
+    public static final String USER_SALT_GET_SUCCESS = "获取盐值成功";
+    public static final String USER_TOKEN_REFRESH_SUCCESS = "令牌刷新成功";
 
     public static final String PRODUCT_ID_REQUIRED = "商品ID不能为空";
     public static final String PRODUCT_NAME_REQUIRED = "商品名称不能为空";

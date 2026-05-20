@@ -1,6 +1,8 @@
 package com.sadjier.controller;
 
+import com.sadjier.annotations.RequireRole;
 import com.sadjier.common.Result;
+import com.sadjier.enums.UserRolesEnum;
 import com.sadjier.model.vo.store.StoreStatsVO;
 import com.sadjier.service.StoreService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -20,6 +22,7 @@ public class StoreController {
     /// <summary>获取店铺统计</summary>
     @GetMapping("/stats")
     @Operation(summary = "获取店铺统计",description = "传入查询的店铺对应的商家id")
+    @RequireRole(all = true)
     public Result<StoreStatsVO> getStoreStats(@RequestParam(value = "merchantId", required = true) Long merchant_id) {
         return store_service.getStoreStats(merchant_id);
     }

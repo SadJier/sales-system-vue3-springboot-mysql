@@ -10,12 +10,16 @@ import com.sadjier.model.entity.SysUser;
 import com.sadjier.model.vo.user.UserGetPageVO;
 import com.sadjier.model.vo.user.UserListItemVO;
 import com.sadjier.model.vo.user.UserLoginVO;
+import com.sadjier.model.vo.user.TokenRefreshVO;
 import com.sadjier.service.UserService;
 import com.sadjier.util.CommonUtil;
 import com.sadjier.util.JwtUtil;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.core.io.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +36,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /// <summary>用户业务实现</summary>
 @Service
@@ -49,16 +54,18 @@ public class UserServiceImpl implements UserService {
     /// <summary>redis</summary>
     @Autowired
     private RedisTemplate<Object, Object> redis_template;
+    /// <summary>HTTP请求</summary>
+    @Autowired
+    private HttpServletRequest http_request;
+    /// <summary>HTTP响应</summary>
+    @Autowired
+    private HttpServletResponse http_response;
 
     /// <summary>登录验证</summary>
     public Result<UserLoginVO> login(UserLoginDTO dto) {
-        // 用户名
         String user_name = dto.getUsername();
-        // 密码
         String password = dto.getPassword();
         UserRolesEnum role = dto.getRole();
-//        log.info("用户登录请求:用户名({}),密码({}),身份({})", user_name,password,role);
-        // 用户信息
         SysUser sys_user = sys_user_repo.findByUserName(user_name);
         if (sys_user == null || !sys_user.getRole().equals(role)) {
             return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.USER_NOT_FOUND);
@@ -71,30 +78,35 @@ public class UserServiceImpl implements UserService {
         }
         sys_user.setLoginTime(LocalDateTime.now());
         sys_user_repo.save(sys_user);
-        // 返回数据
+        //生成双令牌
+        String access_token = JwtUtil.generateToken(sys_user.getUserId(), sys_user.getRole());
+        String refresh_token = JwtUtil.generateRefreshToken(sys_user.getUserId(), sys_user.getRole());
+        //存储access token到redis白名单
+        String access_key = JwtUtil.REDIS_ACCESS_PREFIX + sys_user.getUserId();
+        redis_template.opsForValue().set(access_key, access_token, 10, TimeUnit.MINUTES);
+        //存储refresht token到redis白名单并附带客户端信息
+        String refresh_key = JwtUtil.REDIS_REFRESH_PREFIX + sys_user.getUserId();
+        String client_info = buildClientInfo();
+        redis_template.opsForValue().set(refresh_key, refresh_token + "|" + client_info, 7, TimeUnit.DAYS);
+        //将refresh token写入cookie
+        setRefreshTokenCookie(refresh_token);
+        //返回数据
         UserLoginVO result_data = new UserLoginVO();
         result_data.setUserId(sys_user.getUserId());//可用于前端显示uid
         result_data.setUsername(sys_user.getUserName());
         result_data.setRole(sys_user.getRole());
-        String token = JwtUtil.generateToken(sys_user.getUserId(), sys_user.getRole());
-        result_data.setToken(token);
+        result_data.setToken(access_token);
         return Result.success(result_data, ResultMsgConstant.USER_LOGIN_SUCCESS);
     }
     /// <summary>注册</summary>
     public Result<String> register(UserRegisterDTO dto) {
-        //用户名
         String user_name = (String) dto.getUsername();
-        //密码
         String password = (String) dto.getPassword();
-        //角色
         UserRolesEnum role = dto.getRole();
-//        log.info("用户注册请求:用户名({}),密码({}),身份({})", user_name,password,role);
-        //用户信息
         SysUser exist_user = sys_user_repo.findByUserName(user_name);
         if (exist_user != null) {
             return Result.result(ResultStatusEnum.ERROR,ResultMsgConstant.USER_NAME_ALREADY_EXISTS);
         }
-        //新用户
         SysUser new_user = new SysUser();
         new_user.setUserName(user_name);
         new_user.setPassword(password_encoder.encode(password));
@@ -109,23 +121,23 @@ public class UserServiceImpl implements UserService {
         if (token == null) {
             return Result.success(ResultMsgConstant.USER_LOGOUT_SUCCESS);
         }
-
         var claims = JwtUtil.parseToken(token);
-        var username = JwtUtil.getUsername(claims);
-//        log.info("用户({})登出",username);
-        redis_template.opsForValue().set(token,"logout", JwtUtil.getRemainingTime(claims), java.util.concurrent.TimeUnit.MILLISECONDS);
+        var user_id = JwtUtil.getUserId(claims);
+        if(user_id != null){
+            //从白名单移除access token
+            String access_key = JwtUtil.REDIS_ACCESS_PREFIX + user_id;
+            redis_template.delete(access_key);
+            //清除refresh token
+            String refresh_key = JwtUtil.REDIS_REFRESH_PREFIX + user_id;
+            redis_template.delete(refresh_key);
+        }
+        //清除Cookie
+        clearRefreshTokenCookie();
         return Result.success(ResultMsgConstant.USER_LOGOUT_SUCCESS);
     }
     /// <summary>用户分页查询</summary>
     public Result<UserGetPageVO> getUserPage(UserGetPageDTO dto) {
-//        log.info("分页查询用户");
-        //验证权限
-        var claims = JwtUtil.parseToken(CommonUtil.getToken());
-        if(!Objects.equals(JwtUtil.getUserRole(claims), UserRolesEnum.ADMIN))
-            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.USER_SEARCH_ONLY_ADMIN);
-        //页码默认值
         int page_index = dto.getPageIndex() <= 0 ? 0 : dto.getPageIndex()-1;
-        //每页数量默认值
         int page_size = dto.getPageSize() <= 0 ? 10 : dto.getPageSize();
         //分页对象
         PageRequest page_request = PageRequest.of(page_index, page_size);
@@ -134,8 +146,6 @@ public class UserServiceImpl implements UserService {
             //条件集合
             List<Predicate> predicate_list = new ArrayList<>();
             if (StringUtils.hasText(dto.getUsername())) {
-                //名称条件
-//                log.info("查询条件:用户名包含({})", dto.getUsername());
                 Predicate name_predicate = criteria_builder.like(root.get("userName"), "%" + dto.getUsername() + "%");
                 predicate_list.add(name_predicate);
             }
@@ -163,7 +173,7 @@ public class UserServiceImpl implements UserService {
         if (!password_encoder.matches(old_password, sys_user.getPassword())) {
             return Result.result(ResultStatusEnum.DATA_INVALID,ResultMsgConstant.USER_OLD_PASSWORD_ERROR);
         }
-        if(!password_encoder.matches(new_password, sys_user.getPassword())) {
+        if(password_encoder.matches(new_password, sys_user.getPassword())) {
             return Result.result(ResultStatusEnum.DATA_INVALID,ResultMsgConstant.USER_NEW_PASSWORD_SAME_AS_OLD);
         }
         sys_user.setPassword(password_encoder.encode(new_password));
@@ -173,8 +183,6 @@ public class UserServiceImpl implements UserService {
     /// <summary>上传头像</summary>
     public Result<String> uploadAvatar(UserUploadAvatarDTO dto) {
         var user_id = JwtUtil.getUserId();
-//        log.info("用户ID({})上传头像", user_id);
-
         if(!CommonUtil.uploadUserAvatar(user_id, dto.getFile()))
             return Result.result(ResultStatusEnum.ERROR,ResultMsgConstant.USER_AVATAR_UPLOAD_FAILED);
         return Result.success(ResultMsgConstant.USER_AVATAR_UPLOAD_SUCCESS);
@@ -185,13 +193,73 @@ public class UserServiceImpl implements UserService {
     }
     /// <summary>删除用户</summary>
     public Result<String> deleteUser(Long user_id){
-        //验证权限
-        var claims = JwtUtil.parseToken(CommonUtil.getToken());
-        var role = JwtUtil.getUserRole(claims);
-        if(role != UserRolesEnum.ADMIN) return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.USER_DELETE_ONLY_ADMIN);
         if(user_id == null) return Result.result(ResultStatusEnum.DATA_INVALID,ResultMsgConstant.USER_INVALID);
         if(sys_user_repo.findByUserId(user_id) == null) return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.USER_NOT_FOUND);
         sys_user_repo.deleteById(user_id);
         return Result.success(ResultMsgConstant.USER_DELETE_SUCCESS);
+    }
+    /// <summary>刷新访问令牌</summary>
+    public Result<TokenRefreshVO> refreshToken(String refresh_token) {
+        //校验刷新令牌格式和有效期
+        if(!JwtUtil.validateRefreshToken(refresh_token)){
+            return Result.result(ResultStatusEnum.TOKEN_INVALID, ResultMsgConstant.TOKEN_LOCAL_INVALID);
+        }
+        var claims = JwtUtil.parseToken(refresh_token);
+        var user_id = JwtUtil.getUserId(claims);
+        var role = JwtUtil.getUserRole(claims);
+        if(user_id == null || role == null){
+            return Result.result(ResultStatusEnum.TOKEN_INVALID, ResultMsgConstant.TOKEN_LOCAL_INVALID);
+        }
+        //校验redis中的刷新令牌
+        String refresh_key = JwtUtil.REDIS_REFRESH_PREFIX + user_id;
+        Object stored_value = redis_template.opsForValue().get(refresh_key);
+        if(stored_value == null){
+            return Result.result(ResultStatusEnum.TOKEN_INVALID, ResultMsgConstant.TOKEN_LOCAL_INVALID);
+        }
+        String stored_data = (String) stored_value;
+        String current_data = refresh_token + "|" +  buildClientInfo();
+        //验证refresh token和信息是否相同
+        if(!current_data.equals(stored_data)){
+            return Result.result(ResultStatusEnum.TOKEN_INVALID, ResultMsgConstant.TOKEN_LOCAL_INVALID);
+        }
+        //生成新的双令牌
+        String new_access_token = JwtUtil.generateToken(user_id, role);
+        String new_refresh_token = JwtUtil.generateRefreshToken(user_id, role);
+        //更新access\refresh token白名单
+        String access_key = JwtUtil.REDIS_ACCESS_PREFIX + user_id;
+        redis_template.opsForValue().set(access_key, new_access_token, 10, TimeUnit.MINUTES);
+        String new_client_info = buildClientInfo();
+        redis_template.opsForValue().set(refresh_key, new_refresh_token + "|" + new_client_info, 7, TimeUnit.DAYS);
+        //更新Cookie
+        setRefreshTokenCookie(new_refresh_token);
+        //返回新令牌
+        TokenRefreshVO vo = new TokenRefreshVO();
+        vo.setAccessToken(new_access_token);
+        vo.setRefreshToken(new_refresh_token);
+        return Result.success(vo, ResultMsgConstant.USER_TOKEN_REFRESH_SUCCESS);
+    }
+    /// <summary>构建客户端识别信息</summary>
+    private String buildClientInfo() {
+        String ip = http_request.getRemoteAddr();
+        String user_agent = http_request.getHeader("User-Agent");
+        return ip + "|" + (user_agent != null ? user_agent : "");
+    }
+    /// <summary>将refresh token写入cookie</summary>
+    private void setRefreshTokenCookie(String refresh_token) {
+        Cookie cookie = new Cookie(JwtUtil.COOKIE_REFRESH_NAME, refresh_token);
+        cookie.setHttpOnly(true);
+        cookie.setSecure(true);
+        cookie.setPath("/");
+        cookie.setMaxAge(7 * 24 * 60 * 60);
+        http_response.addCookie(cookie);
+    }
+    /// <summary>清除cookie的refresh token</summary>
+    private void clearRefreshTokenCookie() {
+        Cookie cookie = new Cookie(JwtUtil.COOKIE_REFRESH_NAME, "");
+        cookie.setHttpOnly(true);
+        cookie.setSecure(true);
+        cookie.setPath("/");
+        cookie.setMaxAge(0);
+        http_response.addCookie(cookie);
     }
 }

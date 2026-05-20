@@ -102,9 +102,6 @@ public class ProductServiceImpl implements ProductService {
     /// <summary>新增商品</summary>
     public Result<String> addProduct(ProductCreateDTO product_create) {
         var claims = JwtUtil.parseToken(CommonUtil.getToken());
-        if(JwtUtil.getUserRole(claims) != UserRolesEnum.MERCHANT){
-            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_ADD_ONLY_BY_MERCHANT);
-        }
         Product product = new Product();
         product.setName(product_create.getName());
         var category = category_repo.findByCategoryId(product_create.getCategoryId());
@@ -121,10 +118,6 @@ public class ProductServiceImpl implements ProductService {
     /// <summary>上传商品图片</summary>
     public Result<String> uploadProductImage(ProductUploadImageDTO dto){
         var claims = JwtUtil.parseToken(CommonUtil.getToken());
-//        log.info("用户ID({})上传商品图片", JwtUtil.getUserId(claims));
-        //检验是否为商家、商品是否为该商家的
-        if(JwtUtil.getUserRole(claims) != UserRolesEnum.MERCHANT)
-            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_IMAGE_UPLOAD_ONLY_MERCHANT);
         Product product = product_repo.findByProductId(dto.getProductId());
         if(product == null)
             return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.PRODUCT_NOT_FOUND);

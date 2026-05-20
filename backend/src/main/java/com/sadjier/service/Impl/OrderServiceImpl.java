@@ -81,10 +81,6 @@ public class OrderServiceImpl implements OrderService {
     /// <summary>新增订单</summary>
     public Result<String> addOrder(OrderCreateDTO order_create) {
         var claims = JwtUtil.parseToken(CommonUtil.getToken());
-        //验证数据和权限
-        if (JwtUtil.getUserRole(claims) != UserRolesEnum.MERCHANT) {
-            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION, ResultMsgConstant.ORDER_ADD_ONLY_BY_MERCHANT);
-        }
         Product product = product_repo.findByProductId(order_create.getProductId());
         if (product == null) {
             return Result.result(ResultStatusEnum.NO_DATA, ResultMsgConstant.ORDER_PRODUCT_NOT_FOUND);
@@ -116,7 +112,6 @@ public class OrderServiceImpl implements OrderService {
 
         return Result.success(ResultMsgConstant.ORDER_ADD_SUCCESS);
     }
-
     /// <summary>更新订单</summary>
     public Result<String> updateOrder(OrderUpdateDTO order_update) {
         Orders order = order_repo.findByOrderId(order_update.getOrderId());

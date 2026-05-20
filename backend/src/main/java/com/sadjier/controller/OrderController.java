@@ -1,6 +1,8 @@
 package com.sadjier.controller;
 
+import com.sadjier.annotations.RequireRole;
 import com.sadjier.common.Result;
+import com.sadjier.enums.UserRolesEnum;
 import com.sadjier.model.dto.order.OrderCreateDTO;
 import com.sadjier.model.dto.order.OrderGetPageDTO;
 import com.sadjier.model.dto.order.OrderUpdateDTO;
@@ -24,6 +26,7 @@ public class OrderController {
     /// <summary>分页查询订单</summary>
     @GetMapping
     @Operation(summary = "分页查询订单")
+    @RequireRole(all = true)
     public Result<OrderGetPageVO> getOrderPage(@ModelAttribute OrderGetPageDTO dto) {
         return order_service.getOrderPage(dto);
     }
@@ -31,6 +34,7 @@ public class OrderController {
     /// <summary>新增订单</summary>
     @PostMapping
     @Operation(summary = "新增订单")
+    @RequireRole(roles = {UserRolesEnum.MERCHANT})
     public Result<String> addOrder(@Valid @RequestBody OrderCreateDTO order_create) {
         return order_service.addOrder(order_create);
     }
@@ -38,6 +42,7 @@ public class OrderController {
     /// <summary>更新订单</summary>
     @PutMapping("/update")
     @Operation(summary = "更新订单")
+    @RequireRole(all = true)
     public Result<String> updateOrder(@Valid @RequestBody OrderUpdateDTO order_update) {
         return order_service.updateOrder(order_update);
     }
@@ -45,6 +50,7 @@ public class OrderController {
     /// <summary>删除订单</summary>
     @DeleteMapping("/delete/{order_id}")
     @Operation(summary = "删除订单")
+    @RequireRole(all = true)
     public Result<String> deleteOrder(@PathVariable("order_id") Long order_id) {
         return order_service.deleteOrder(order_id);
     }

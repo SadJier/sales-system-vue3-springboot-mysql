@@ -15,6 +15,7 @@ export const useUserStore = defineStore('user',{
             this.isLoggedIn = true;
 
             localStorage.setItem('userInfo', JSON.stringify(user_data));
+            if(user_data.token) localStorage.setItem('token', user_data.token);
         },
         logout(){
             this.userId = null;
