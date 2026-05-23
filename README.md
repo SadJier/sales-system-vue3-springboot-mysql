@@ -93,11 +93,14 @@ sales_system/
 │       ├── components/               # 页面组件
 │       ├── pinia/                    # 状态管理
 │       └── router/                   # 路由配置
-├── nginx/                            # Nginx配置
-│   └── conf/
-│        └── nginx.conf               #   Nginx配置文件
 ├── docker/                           # Docker部署
-│   └── Dockerfile                    #   后端Docker镜像构建文件
+│   ├── backend/                      #   后端镜像构建
+│   │   └── Dockerfile                #     后端Dockerfile
+│   └── frontend/                     #   前端镜像构建
+│       ├── Dockerfile                #     前端Dockerfile
+│       ├── nginx.conf                #     Nginx配置文件
+│       ├── cert/                     #     SSL证书目录
+│       └── dist/                     #     前端构建产物
 └── README.md
 ```
 
@@ -210,11 +213,11 @@ file.product.path=uploads/products/
 
 4. 根据运行环境替换地址：
 
-| 配置项       | 本地运行    | Docker 部署            |
-| ------------ | ----------- | ---------------------- |
-| 数据库地址   | `localhost` | `host.docker.internal` |
-| Redis地址    | `localhost` | `host.docker.internal` |
-| RabbitMQ地址 | `localhost` | `host.docker.internal` |
+| 配置项       | 本地运行    | Docker 部署（后端容器连接中间件容器） |
+| ------------ | ----------- | -------------------------------------- |
+| 数据库地址   | `localhost` | `mysql_sales_manager`                  |
+| Redis地址    | `localhost` | `redis_sales_manager`                  |
+| RabbitMQ地址 | `localhost` | `rabbitmq_sales_manager`               |
 
 > JPA 会根据实体类自动创建数据表，无需手动建表。
 
@@ -249,31 +252,7 @@ mvn spring-boot:run
 
 API 文档访问地址：`http://localhost:8080/doc.html`
 
-### 第五步：配置并启动 Nginx
-
-1. 将 SSL 证书文件放置到 `nginx/conf/cert/` 目录（需要 `localhost.crt` 和 `localhost.key`，PEM 格式）。
-
-2. 构建前端并部署到 Nginx：
-
-```bash
-cd frontend
-npm run build
-# 将 dist 目录内容复制到 nginx/html/dist/
-```
-
-3. 启动 Nginx：
-
-```bash
-cd nginx
-nginx.exe          # Windows
-# 或 nginx         # Linux/Mac
-```
-
-4. 访问 `https://localhost:8443` 即可使用系统。
-
-> Nginx 配置文件位于 `nginx/conf/nginx.conf`，监听 8443 端口（SSL），负责 API 反向代理（`/api/` → 后端8080）、前端静态资源服务与 Gzip 压缩加速。不提供 HTTP 自动跳转，需直接通过 HTTPS 访问。
-
-### 第六步：开始使用（开发模式）
+### 第五步：开始使用（开发模式）
 
 打开一个新的终端，进入 `frontend` 目录：
 
@@ -289,7 +268,7 @@ npm run dev
 
 前端启动成功后，在浏览器中打开终端显示的地址（通常为 `http://localhost:5173`）即可使用系统。
 
-### 第七步：开始使用
+### 第六步：开始使用
 
 1. 在登录页面注册一个新账号（系统初始化时已创建管理员：账号 `admin`，密码 `admin123`）
 2. 使用注册的账号登录
@@ -304,108 +283,113 @@ cd frontend
 npm run build
 ```
 
-打包后的文件在 `frontend/dist` 目录中，部署到 `nginx/html/dist/` 即可。
+打包后的文件在 `frontend/dist` 目录中，将 `dist` 目录内容复制到 `docker/frontend/dist/` 即可用于 Docker 镜像构建。
 
 后端打包：
 
 ```bash
 cd backend
 mvnw.cmd package -DskipTests
-java -jar target/sale_system-0.0.1-SNAPSHOT.jar
 ```
+
+打包后的 JAR 文件在 `backend/target/` 目录中。将其复制到 `docker/backend/` 并保持其名称与Dockerfile中的jar包名称相同，即可用于 Docker 镜像构建。
 
 ### Docker 部署
 
-项目提供了 `docker/Dockerfile`，可将后端打包为 Docker 镜像运行。
+项目提供完整的 Docker 部署方案，后端和前端分别构建为独立镜像，中间件（MySQL、Redis、RabbitMQ）使用 Docker 容器运行，所有容器通过自定义网络互联。
 
-#### 1. 构建后端 JAR 包
+#### 1. 准备工作
 
-```bash
-cd backend
-mvnw.cmd package -DskipTests
-```
+确保已安装 Docker，并完成以下准备：
 
-构建完成后 JAR 包位于 `backend/target/你的jar包名.jar`。
+- 后端 JAR 包已复制到 `docker/backend/`下并于Dockerfile中的JAR包名称一致
+- 前端构建产物已复制到 `docker/frontend/dist/`
+- SSL 证书已放置到 `docker/frontend/cert/`（需要 `localhost.crt` 和 `localhost.key`，PEM 格式）
+- `application.properties` 中各中间件地址已改为容器名（见第一步配置表格）
 
-#### 2. 构建 Docker 镜像
-
-将 JAR 包复制到 `docker/` 目录并构建镜像：
+#### 2. 创建 Docker 网络
 
 ```bash
-# 复制 JAR 包到 docker 目录（重命名为 Dockerfile 中指定的名称）
-copy backend\target\你的jar包名.jar docker\你的jar包名.jar
+docker network create sales_manager_network
 ```
 
-如果你的JAR包名经过修改，则需要修改Dockerfile中的包名
-
-```
-# 构建镜像
-cd docker
-docker build -t sales-system:latest .
-```
-
-#### 3. 运行 Docker 容器
+#### 3. 构建镜像
 
 ```bash
-docker run -d -p 8080:8080 --name sales-system sales-system:latest
+# 构建后端镜像
+cd docker/backend
+docker build -t sales_manager:windows .
+
+# 构建前端镜像
+cd ../frontend
+docker build -t sales_manager_frontend:windows .
 ```
 
-#### 4. 关于 host.docker.internal
+#### 4. 启动中间件容器
 
-Docker 容器内部无法直接访问宿主机的 `localhost`，需要使用 `host.docker.internal` 来替代。当前 `application.properties` 中的以下配置已使用 `host.docker.internal`：
-
-```properties
-# MySQL - 使用 host.docker.internal 替代 localhost
-spring.datasource.url=jdbc:mysql://host.docker.internal:3306/sales_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-
-# Redis - 使用 host.docker.internal 替代 localhost
-spring.data.redis.host=host.docker.internal
-
-# RabbitMQ - 使用 host.docker.internal 替代 localhost
-spring.rabbitmq.host=host.docker.internal
-```
-
-> **注意**：`host.docker.internal` 在 Docker Desktop（Windows/Mac）上默认可用。在 Linux 上需要添加 `--add-host=host.docker.internal:host-gateway` 参数：
->
-> ```bash
-> docker run -d -p 8080:8080 --add-host=host.docker.internal:host-gateway --name sales-system sales-system:latest
-> ```
-
-#### 5. 非 Docker 环境（本地开发）
-
-如果不在 Docker 中运行后端，需要将 `application.properties` 中的 `host.docker.internal` 改回 `localhost`：
-
-```properties
-spring.datasource.url=jdbc:mysql://localhost:3306/sales_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-spring.data.redis.host=localhost
-spring.rabbitmq.host=localhost
-```
-
-#### 6. Docker 部署完整流程
-
-确保宿主机已启动 MySQL、Redis、RabbitMQ，然后：
+**MySQL**
 
 ```bash
-# 1. 构建后端
-cd backend
-mvnw.cmd package -DskipTests
-
-# 2. 构建 Docker 镜像
-copy target\sale_system-1.0.0.jar ..\docker\sale_system-1.0.0.jar
-cd ..\docker
-docker build -t sales-system:latest .
-
-# 3. 运行容器
-docker run -d -p 8080:8080 --add-host=host.docker.internal:host-gateway --name sales-system sales-system:latest
-
-# 4. 构建前端并部署到 Nginx
-cd ..\frontend
-npm run build
-# 将 dist 目录内容复制到 nginx/html/dist/
-
-# 5. 启动 Nginx
-cd ..\nginx
-nginx.exe
+docker run -d `
+  --name mysql_sales_manager `
+  --network sales_manager_network `
+  -p 3306:3306 `
+  -v mysql-data:/var/lib/mysql `
+  -e MYSQL_ROOT_PASSWORD=你的数据库密码 `
+  -e MYSQL_DATABASE=sales_db `
+  mysql:8
 ```
+
+**Redis**
+
+```bash
+docker run -d `
+  --name redis_sales_manager `
+  --network sales_manager_network `
+  -p 6379:6379 `
+  -v redis-data:/data `
+  redis:alpine `
+  redis-server --appendonly yes
+```
+
+**RabbitMQ**
+
+```bash
+docker run -d `
+  --name rabbitmq_sales_manager `
+  --network sales_manager_network `
+  -p 5672:5672 `
+  -p 15672:15672 `
+  -v rabbitmq-data:/var/lib/rabbitmq `
+  -e RABBITMQ_DEFAULT_USER=你的rabbitmq用户名 `
+  -e RABBITMQ_DEFAULT_PASS=你的rabbitmq密码 `
+  rabbitmq:3-management
+```
+
+> **注意**：RabbitMQ 容器不能使用默认的 `guest` / `guest` 账户，必须通过环境变量指定自定义用户名和密码，且需与 `application.properties` 中的 `spring.rabbitmq.username` 和 `spring.rabbitmq.password` 一致。
+
+#### 5. 启动应用容器
+
+**后端**
+
+```bash
+docker run -d `
+  --name sales_manager `
+  --network sales_manager_network `
+  -p 8080:8080 `
+  sales_manager:windows
+```
+
+**前端**
+
+```bash
+docker run -d `
+  --name sales_manager_frontend `
+  --network sales_manager_network `
+  -p 8443:8443 `
+  sales_manager_frontend:windows
+```
+
+#### 6. 访问系统
 
 访问 `https://localhost:8443` 即可使用系统。
