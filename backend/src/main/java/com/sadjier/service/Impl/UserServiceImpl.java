@@ -2,6 +2,7 @@ package com.sadjier.service.Impl;
 
 import com.sadjier.dao.SysUserRepository;
 import com.sadjier.enums.ResultStatusEnum;
+import com.sadjier.enums.UploadImageType;
 import com.sadjier.enums.UserRolesEnum;
 import com.sadjier.common.Result;
 import com.sadjier.constant.ResultMsgConstant;
@@ -11,6 +12,8 @@ import com.sadjier.model.vo.user.UserGetPageVO;
 import com.sadjier.model.vo.user.UserListItemVO;
 import com.sadjier.model.vo.user.UserLoginVO;
 import com.sadjier.model.vo.user.TokenRefreshVO;
+import com.sadjier.mq.model.ImageUploadMessage;
+import com.sadjier.mq.producer.BusinessMessageProducer;
 import com.sadjier.service.UserService;
 import com.sadjier.util.CommonUtil;
 import com.sadjier.util.JwtUtil;
@@ -35,7 +38,6 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /// <summary>用户业务实现</summary>
@@ -60,6 +62,9 @@ public class UserServiceImpl implements UserService {
     /// <summary>HTTP响应</summary>
     @Autowired
     private HttpServletResponse http_response;
+    /// <summary>业务消息生产者</summary>
+    @Autowired
+    private BusinessMessageProducer business_message_producer;
 
     /// <summary>登录验证</summary>
     public Result<UserLoginVO> login(UserLoginDTO dto) {
@@ -84,7 +89,7 @@ public class UserServiceImpl implements UserService {
         //存储access token到redis白名单
         String access_key = JwtUtil.REDIS_ACCESS_PREFIX + sys_user.getUserId();
         redis_template.opsForValue().set(access_key, access_token, 10, TimeUnit.MINUTES);
-        //存储refresht token到redis白名单并附带客户端信息
+        //存储refresh token到redis白名单并附带客户端信息
         String refresh_key = JwtUtil.REDIS_REFRESH_PREFIX + sys_user.getUserId();
         String client_info = buildClientInfo();
         redis_template.opsForValue().set(refresh_key, refresh_token + "|" + client_info, 7, TimeUnit.DAYS);
@@ -100,8 +105,8 @@ public class UserServiceImpl implements UserService {
     }
     /// <summary>注册</summary>
     public Result<String> register(UserRegisterDTO dto) {
-        String user_name = (String) dto.getUsername();
-        String password = (String) dto.getPassword();
+        String user_name = dto.getUsername();
+        String password = dto.getPassword();
         UserRolesEnum role = dto.getRole();
         SysUser exist_user = sys_user_repo.findByUserName(user_name);
         if (exist_user != null) {
@@ -183,9 +188,19 @@ public class UserServiceImpl implements UserService {
     /// <summary>上传头像</summary>
     public Result<String> uploadAvatar(UserUploadAvatarDTO dto) {
         var user_id = JwtUtil.getUserId();
-        if(!CommonUtil.uploadUserAvatar(user_id, dto.getFile()))
-            return Result.result(ResultStatusEnum.ERROR,ResultMsgConstant.USER_AVATAR_UPLOAD_FAILED);
-        return Result.success(ResultMsgConstant.USER_AVATAR_UPLOAD_SUCCESS);
+        //校验通过后封装消息推入MQ
+        String business_id = java.util.UUID.randomUUID().toString();
+        ImageUploadMessage upload_message = new ImageUploadMessage();
+        upload_message.setBusinessId(business_id);
+        upload_message.setImageType(UploadImageType.AVATAR);
+        upload_message.setTargetId(user_id);
+        try {
+            upload_message.setFileData(dto.getFile().getBytes());
+        } catch (Exception e) {
+            return Result.result(ResultStatusEnum.ERROR, ResultMsgConstant.USER_AVATAR_UPLOAD_FAILED);
+        }
+        business_message_producer.sendImageUploadMessage(upload_message);
+        return Result.success(business_id, ResultMsgConstant.USER_AVATAR_UPLOADING);
     }
     /// <summary>获取头像</summary>
     public Resource getAvatar(Long user_id) {
@@ -195,6 +210,7 @@ public class UserServiceImpl implements UserService {
     public Result<String> deleteUser(Long user_id){
         if(user_id == null) return Result.result(ResultStatusEnum.DATA_INVALID,ResultMsgConstant.USER_INVALID);
         if(sys_user_repo.findByUserId(user_id) == null) return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.USER_NOT_FOUND);
+        CommonUtil.deleteUserAvatar(user_id);
         sys_user_repo.deleteById(user_id);
         return Result.success(ResultMsgConstant.USER_DELETE_SUCCESS);
     }
@@ -238,9 +254,19 @@ public class UserServiceImpl implements UserService {
         vo.setRefreshToken(new_refresh_token);
         return Result.success(vo, ResultMsgConstant.USER_TOKEN_REFRESH_SUCCESS);
     }
+    // 工具方法
     /// <summary>构建客户端识别信息</summary>
     private String buildClientInfo() {
-        String ip = http_request.getRemoteAddr();
+        String ip = http_request.getHeader("X-Real-IP");
+        if (ip == null || ip.isEmpty()) {
+            ip = http_request.getHeader("X-Forwarded-For");
+            if (ip != null && ip.contains(",")) {
+                ip = ip.split(",")[0].trim();
+            }
+        }
+        if (ip == null || ip.isEmpty()) {
+            ip = http_request.getRemoteAddr();
+        }
         String user_agent = http_request.getHeader("User-Agent");
         return ip + "|" + (user_agent != null ? user_agent : "");
     }

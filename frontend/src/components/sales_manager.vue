@@ -294,7 +294,7 @@
                     <div class="product-title-delete">{{ productToDelete.name }}</div>
                     <div class="product-details">
                         <p><strong>商品ID：</strong>{{ productToDelete.productId }}</p>
-                        <p><strong>分类：</strong>{{ productToDelete.category }}</p>
+                        <p><strong>分类：</strong>{{ getCategoryName(productToDelete.categoryId) || '无分类' }}</p>
                         <p><strong>售价：</strong>¥{{ productToDelete.salePrice?.toFixed(2) }}</p>
                         <p><strong>库存：</strong>{{ productToDelete.stock }} 件</p>
                     </div>
@@ -327,7 +327,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { Search, User, ArrowDown, SwitchButton, Plus } from '@element-plus/icons-vue';
 import router from '@/router';
 import { processResult } from '@/axios/index.js';
-import { userLogout, getProductList, createProduct, updateProduct, deleteProduct, getAvatarUrl, uploadProductImage, getProductImageUrl, getCategoryList } from '@/api/index.js';
+import { userLogout, getProductList, createProduct, updateProduct, deleteProduct, getAvatarUrl, uploadProductImage, getProductImageUrl, getCategoryList, checkBusinessCompleted } from '@/api/index.js';
 
 export default {
     name: 'ProductManagement',
@@ -375,6 +375,10 @@ export default {
             product_image_timestamp: Date.now(),
             // 商品列表图片时间戳（用于破缓存刷新列表中的商品图片）
             product_list_image_ts: Date.now(),
+            // 商品图片上传轮询定时器
+            image_polling_timer: null,
+            // 商品图片上传轮询重试次数
+            image_polling_retry: 0,
             // 分类列表（从后端获取）
             categoryList: [],
             // 分类id到名称的映射
@@ -461,6 +465,8 @@ export default {
                             return map;
                         }, {});
                     }
+                } else {
+                    ElMessage.error(result.msg || '获取分类列表失败');
                 }
             } catch (error) {
                 console.error('获取分类列表失败:', error);
@@ -536,6 +542,8 @@ export default {
                     } else {
                         this.productList = [];
                     }
+                } else {
+                    ElMessage.error(result.msg || '加载商品数据失败');
                 }
             } catch (error) {
                 console.error('加载商品数据失败:', error)
@@ -602,8 +610,13 @@ export default {
 
                 const result = processResult(response.data, '操作失败')
                 if (result.success) {
-                    // 编辑时如果有待上传图片，先上传图片
+                    // 编辑时如果有待上传图片，再上传图片
                     if (this.isEditing && this.pending_image_file) {
+                        const loading_instance = ElMessage({
+                            message: '商品图片上传中...',
+                            type: 'info',
+                            duration: 0
+                        });
                         try {
                             const img_response = await uploadProductImage({
                                 product_id: this.editingProductId,
@@ -611,11 +624,17 @@ export default {
                             });
                             const img_result = processResult(img_response.data, '图片上传失败');
                             if (img_result.success) {
-                                this.product_image_timestamp = Date.now();
-                                this.product_list_image_ts = Date.now();
+                                // img_result.data 为业务ID，开始轮询
+                                const business_id = img_result.data;
+                                this.image_polling_retry = 0;
+                                this.pollProductImageUploadStatus(business_id, loading_instance);
+                            } else {
+                                loading_instance.close();
+                                ElMessage.error(img_result.msg || '图片上传失败');
                             }
                         } catch (error) {
                             console.error('图片上传失败:', error);
+                            loading_instance.close();
                             ElMessage.error('商品信息已更新，但图片上传失败');
                             this.submitting = false;
                             this.pending_image_file = null;
@@ -627,6 +646,8 @@ export default {
                     ElMessage.success(result.msg || (this.isEditing ? '商品更新成功' : '商品添加成功'))
                     this.closeProductDialog()
                     this.loadProducts()
+                } else {
+                    ElMessage.error(result.msg || '操作失败');
                 }
             } catch (error) {
                 console.error('操作失败:', error)
@@ -649,6 +670,8 @@ export default {
                     ElMessage.success(result.msg || '商品删除成功')
                     this.closeDeleteDialog()
                     this.loadProducts()
+                } else {
+                    ElMessage.error(result.msg || '删除失败');
                 }
             } catch (error) {
                 console.error('删除失败:', error)
@@ -737,6 +760,43 @@ export default {
          */
         handleProductImageUpload(params) {
             this.pending_image_file = params.file;
+        },
+
+        /**
+         * 轮询商品图片上传业务完成状态
+         * @param {String} business_id 业务ID
+         * @param {Object} loading_instance 加载提示实例
+         */
+        pollProductImageUploadStatus(business_id, loading_instance) {
+            if (this.image_polling_timer) {
+                clearTimeout(this.image_polling_timer);
+            }
+            this.image_polling_timer = setTimeout(async () => {
+                try {
+                    const response = await checkBusinessCompleted(business_id);
+                    const result = processResult(response.data, '');
+                    if (result.success && result.data === true) {
+                        loading_instance.close();
+                        this.product_image_timestamp = Date.now();
+                        this.product_list_image_ts = Date.now();
+                        ElMessage.success('商品图片更新成功');
+                    } else if (this.image_polling_retry < 20) {
+                        this.image_polling_retry++;
+                        this.pollProductImageUploadStatus(business_id, loading_instance);
+                    } else {
+                        loading_instance.close();
+                        ElMessage.error('商品图片上传超时，请稍后刷新查看');
+                    }
+                } catch (error) {
+                    if (this.image_polling_retry < 20) {
+                        this.image_polling_retry++;
+                        this.pollProductImageUploadStatus(business_id, loading_instance);
+                    } else {
+                        loading_instance.close();
+                        ElMessage.error('商品图片上传状态查询失败');
+                    }
+                }
+            }, 1000);
         }
     }
 }

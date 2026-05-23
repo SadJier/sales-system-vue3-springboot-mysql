@@ -131,10 +131,12 @@
             <el-form :model="editForm" label-width="100px" @submit.prevent="submitEditOrder">
                 <el-form-item label="订单状态">
                     <el-select v-model="editForm.status" style="width: 100%;">
-                        <el-option label="未支付" value="UNPAID" />
-                        <el-option label="已支付" value="PAID" />
-                        <el-option label="已完成" value="COMPLETED" />
-                        <el-option label="已取消" value="CANCELLED" />
+                        <el-option
+                            v-for="status in statusOptions"
+                            :key="status"
+                            :label="statusLabel(status)"
+                            :value="status"
+                        />
                     </el-select>
                 </el-form-item>
                 <el-form-item label="备注">
@@ -155,12 +157,13 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { User, ArrowDown, SwitchButton } from '@element-plus/icons-vue';
 import router from '@/router';
 import { processResult } from '@/axios/index.js';
-import { userLogout, getOrderList, createOrder, updateOrder, deleteOrder, getProductList, getAvatarUrl } from '@/api/index.js';
+import { userLogout, getOrderList, createOrder, updateOrder, deleteOrder, getProductList, getAvatarUrl, getOrderTransitions } from '@/api/index.js';
 
 // 订单状态标签映射
 const STATUS_MAP = {
     UNPAID: { label: '未支付', type: 'warning' },
     PAID: { label: '已支付', type: '' },
+    SHIPPED: { label: '已发货', type: '' },
     COMPLETED: { label: '已完成', type: 'success' },
     CANCELLED: { label: '已取消', type: 'info' }
 };
@@ -200,6 +203,10 @@ export default {
                 status: '',
                 remark: ''
             },
+            // 订单可转换的状态列表
+            allowedTransitions: [],
+            // 包含当前状态在内的完整选项列表
+            statusOptions: [],
             // 头像时间戳
             avatar_timestamp: Date.now()
         };
@@ -286,6 +293,8 @@ export default {
                     const res_data = result.data;
                     this.orderList = res_data && Array.isArray(res_data.items) ? res_data.items : [];
                     this.totalOrders = res_data?.total || 0;
+                } else {
+                    ElMessage.error(result.msg || '获取订单列表失败');
                 }
             } catch (error) {
                 console.error('获取订单列表失败:', error);
@@ -303,6 +312,8 @@ export default {
                 if (result.success) {
                     const res_data = result.data;
                     this.productList = res_data && Array.isArray(res_data.items) ? res_data.items : [];
+                } else {
+                    ElMessage.error(result.msg || '获取商品列表失败');
                 }
             } catch (error) {
                 console.error('获取商品列表失败:', error);
@@ -335,6 +346,8 @@ export default {
                     ElMessage.success(result.msg || '新增订单成功');
                     this.showAddDialog = false;
                     this.loadOrders();
+                } else {
+                    ElMessage.error(result.msg || '新增订单失败');
                 }
             } catch (error) {
                 console.error('新增订单失败:', error);
@@ -345,9 +358,24 @@ export default {
         },
 
         // 编辑订单
-        handleEditOrder(order) {
+        async handleEditOrder(order) {
             this.editForm = { orderId: order.orderId, status: order.status, remark: order.remark || '' };
+            this.allowedTransitions = [];
+            this.statusOptions = [];
             this.showEditDialog = true;
+            try {
+                const response = await getOrderTransitions(order.orderId);
+                const result = processResult(response.data, '获取可转换状态失败');
+                if (result.success) {
+                    this.allowedTransitions = result.data || [];
+                    //构建选项列表：当前状态 + 可转换状态（去重）
+                    this.statusOptions = [order.status, ...this.allowedTransitions.filter(s => s !== order.status)];
+                } else {
+                    ElMessage.error(result.msg || '获取可转换状态失败');
+                }
+            } catch (error) {
+                console.error('获取可转换状态失败:', error);
+            }
         },
 
         // 提交编辑订单
@@ -360,6 +388,8 @@ export default {
                     ElMessage.success(result.msg || '修改订单成功');
                     this.showEditDialog = false;
                     this.loadOrders();
+                } else {
+                    ElMessage.error(result.msg || '修改订单失败');
                 }
             } catch (error) {
                 console.error('修改订单失败:', error);
@@ -382,6 +412,8 @@ export default {
                     if (result.success) {
                         ElMessage.success(result.msg || '删除订单成功');
                         this.loadOrders();
+                    } else {
+                        ElMessage.error(result.msg || '删除订单失败');
                     }
                 } catch (error) {
                     console.error('删除订单失败:', error);

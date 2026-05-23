@@ -212,6 +212,8 @@ export default {
 
                     ElMessage.success(result.msg || '登录成功');
                     router.push('/goods/manage');
+                } else {
+                    ElMessage.error(result.msg || '登录失败');
                 }
             } catch (err) {
                 console.error('登录请求失败:', err);
@@ -244,6 +246,8 @@ export default {
                     this.form.password = '';
                     this.form.confirmPassword = '';
                     this.switchTab(false);
+                } else {
+                    ElMessage.error(result.msg || '注册失败');
                 }
             } catch (err) {
                 console.error('注册请求失败:', err);

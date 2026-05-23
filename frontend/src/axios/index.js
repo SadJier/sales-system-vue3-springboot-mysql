@@ -3,7 +3,7 @@ import { ElMessageBox } from 'element-plus';
 import { refreshToken as refreshTokenApi } from '@/api/index.js';
 
 let config = {
-    baseURL:"https://localhost",//要连接的后端url
+    baseURL:"",//Nginx反向代理后使用相对路径
     timeout:60000,
     withCredentials:true
 }
@@ -100,6 +100,10 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
     (response) => {
         const res_data = response.data;
+        //刷新令牌接口的响应直接放行，避免刷新失败时递归触发刷新导致死锁
+        if (response.config.url && response.config.url.includes('/api/users/refresh')) {
+            return response;
+        }
         if (res_data && isTokenCode(res_data.code)) {
             //访问令牌过期，尝试用cookie中的refreshToken刷新
             if (is_refreshing) {
@@ -142,11 +146,44 @@ axiosInstance.interceptors.response.use(
         if (is_logging_out) {
             return new Promise(() => {});
         }
+        //刷新令牌接口自身的错误直接放行，避免无限循环刷新
+        if (error.config && error.config.url && error.config.url.includes('/api/users/refresh')) {
+            return Promise.reject(error);
+        }
         if (error.response && error.response.data) {
             const res_data = error.response.data;
             if (isTokenCode(res_data.code)) {
-                handleForceLogout();
-                return new Promise(() => {});
+                //访问令牌过期（后端返回HTTP 401），尝试用cookie中的refreshToken刷新
+                if (is_refreshing) {
+                    return new Promise((resolve) => {
+                        subscribeTokenRefresh((new_token) => {
+                            error.config.headers.Authorization = new_token;
+                            resolve(axiosInstance(error.config));
+                        });
+                    });
+                }
+                is_refreshing = true;
+                return refreshTokenApi()
+                    .then((refresh_res) => {
+                        const refresh_result = refresh_res.data;
+                        if (refresh_result && refresh_result.code === CODE_SUCCESS && refresh_result.data) {
+                            const new_access_token = refresh_result.data.accessToken;
+                            localStorage.setItem('token', new_access_token);
+                            onTokenRefreshed(new_access_token);
+                            error.config.headers.Authorization = new_access_token;
+                            return axiosInstance(error.config);
+                        } else {
+                            handleForceLogout();
+                            return new Promise(() => {});
+                        }
+                    })
+                    .catch(() => {
+                        handleForceLogout();
+                        return new Promise(() => {});
+                    })
+                    .finally(() => {
+                        is_refreshing = false;
+                    });
             }
         }
         return Promise.reject(error);

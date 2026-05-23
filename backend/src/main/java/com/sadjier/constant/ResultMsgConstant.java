@@ -1,5 +1,6 @@
 package com.sadjier.constant;
 
+/// <summary>请求返回的提示的字符串常量定义</summary>
 public final class ResultMsgConstant{
     public static final String SERVER_BUSY = "服务器繁忙，请稍后再试";
     public static final String TOKEN_LOCAL_INVALID = "登录凭证无效，无法进行操作";
@@ -23,7 +24,7 @@ public final class ResultMsgConstant{
     public static final String USER_NEW_PASSWORD_SAME_AS_OLD = "新密码不能与旧密码相同";
     public static final String USER_PASSWORD_UPDATE_SUCCESS = "密码更新成功";
     public static final String USER_AVATAR_UPLOAD_FAILED = "头像上传失败";
-    public static final String USER_AVATAR_UPLOAD_SUCCESS = "头像上传成功";
+    public static final String USER_AVATAR_UPLOADING = "头像上传中";
     public static final String USER_SEARCH_ONLY_ADMIN = "只有管理员可以查询用户";
     public static final String USER_DELETE_ONLY_ADMIN = "只有管理员可以删除用户";
     public static final String USER_DELETE_SUCCESS = "用户删除成功";
@@ -50,7 +51,7 @@ public final class ResultMsgConstant{
     public static final String PRODUCT_IMAGE_UPLOAD_ONLY_MERCHANT = "只有商家才能上传商品图片";
     public static final String PRODUCT_IMAGE_UPLOAD_ONLY_OWN = "只能上传自己商品的图片";
     public static final String PRODUCT_IMAGE_UPLOAD_FAILED = "商品图片上传失败";
-    public static final String PRODUCT_IMAGE_UPLOAD_SUCCESS = "商品图片上传成功";
+    public static final String PRODUCT_IMAGE_UPLOADING = "商品图片上传中";
 
     public static final String CATEGORY_ADD_ONLY_ADMIN = "只有管理员能够添加商品分类";
     public static final String CATEGORY_UPDATE_ONLY_ADMIN = "只有管理员能够更新商品分类";
@@ -77,6 +78,7 @@ public final class ResultMsgConstant{
     public static final String ORDER_DELETE_ONLY_OWN = "只能删除自己的订单";
     public static final String ORDER_DELETE_SUCCESS = "删除订单成功";
     public static final String ORDER_STATUS_INVALID = "订单状态无效";
+    public static final String ORDER_LOCK_FAILED = "操作繁忙，请稍后重试";
 
     public static final String STORE_STATS_ONLY_OWN = "只能查询自己的店铺数统计";
     public static final String STORE_STATS_ID_REQUIRED = "查询店铺统计需指定商家ID";

@@ -5,6 +5,7 @@ import com.sadjier.dao.OrdersRepository;
 import com.sadjier.dao.ProductRepository;
 import com.sadjier.dao.SysUserRepository;
 import com.sadjier.enums.ResultStatusEnum;
+import com.sadjier.enums.UploadImageType;
 import com.sadjier.enums.UserRolesEnum;
 import com.sadjier.model.dto.product.ProductCreateDTO;
 import com.sadjier.model.dto.product.ProductGetPageDTO;
@@ -19,6 +20,8 @@ import com.sadjier.model.vo.product.ProductListItemVO;
 import com.sadjier.model.vo.product.ProductStatsVO;
 import com.sadjier.model.vo.product.ProductVO;
 import com.sadjier.model.vo.product.SaleRecordVO;
+import com.sadjier.mq.model.ImageUploadMessage;
+import com.sadjier.mq.producer.BusinessMessageProducer;
 import com.sadjier.service.ProductService;
 import com.sadjier.util.CommonUtil;
 import com.sadjier.util.JwtUtil;
@@ -36,8 +39,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 
-import static java.util.stream.Collectors.toList;
-
 /// <summary>商品服务实现</summary>
 @Service
 @Slf4j
@@ -52,6 +53,9 @@ public class ProductServiceImpl implements ProductService {
     /// <summary>订单仓储</summary>
     @Autowired
     private OrdersRepository order_repo;
+    /// <summary>业务消息生产者</summary>
+    @Autowired
+    private BusinessMessageProducer business_message_producer;
 
     /// <summary>分页查询商品</summary>
     public Result<ProductGetPageVO> getProductPage(ProductGetPageDTO dto) {
@@ -123,10 +127,19 @@ public class ProductServiceImpl implements ProductService {
             return Result.result(ResultStatusEnum.NO_DATA,ResultMsgConstant.PRODUCT_NOT_FOUND);
         if(!Objects.equals(product.getMerchant().getUserId(), JwtUtil.getUserId(claims)))
             return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_IMAGE_UPLOAD_ONLY_OWN);
-
-        if(!CommonUtil.uploadProductImage(dto.getProductId(), dto.getFile()))
-            return Result.result(ResultStatusEnum.ERROR,ResultMsgConstant.PRODUCT_IMAGE_UPLOAD_FAILED);
-        return Result.success(ResultMsgConstant.PRODUCT_IMAGE_UPLOAD_SUCCESS);
+        //校验通过后封装消息推入MQ
+        String business_id = java.util.UUID.randomUUID().toString();
+        ImageUploadMessage upload_message = new ImageUploadMessage();
+        upload_message.setBusinessId(business_id);
+        upload_message.setImageType(UploadImageType.PRODUCT);
+        upload_message.setTargetId(dto.getProductId());
+        try {
+            upload_message.setFileData(dto.getFile().getBytes());
+        } catch (Exception e) {
+            return Result.result(ResultStatusEnum.ERROR, ResultMsgConstant.PRODUCT_IMAGE_UPLOAD_FAILED);
+        }
+        business_message_producer.sendImageUploadMessage(upload_message);
+        return Result.success(business_id, ResultMsgConstant.PRODUCT_IMAGE_UPLOADING);
     }
     /// <summary>获取商品图片</summary>
     public Resource getProductImage(Long productId) {
@@ -185,6 +198,7 @@ public class ProductServiceImpl implements ProductService {
         var claims = JwtUtil.parseToken(CommonUtil.getToken());
         var user_id = JwtUtil.getUserId(claims);
         if(!Objects.equals(product.getMerchant().getUserId(), user_id)) return Result.result(ResultStatusEnum.DATA_NO_PERMISSION,ResultMsgConstant.PRODUCT_DELETE_ONLY_OWN);
+        CommonUtil.deleteProductImage(product_id);
         product_repo.deleteById(product_id);
         return Result.success(ResultMsgConstant.PRODUCT_DELETE_SUCCESS);
     }

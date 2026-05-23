@@ -220,6 +220,8 @@ export default {
                             return map;
                         }, {});
                     }
+                } else {
+                    ElMessage.error(result.msg || '获取分类列表失败');
                 }
             } catch (error) {
                 console.error('获取分类列表失败:', error);
@@ -240,6 +242,8 @@ export default {
                 const result = processResult(response.data, '获取商品详情失败');
                 if (result.success) {
                     this.product = result.data;
+                } else {
+                    ElMessage.error(result.msg || '获取商品详情失败');
                 }
             } catch (error) {
                 console.error('获取商品详情失败:', error);
@@ -258,6 +262,8 @@ export default {
                 const result = processResult(response.data, '获取商品统计失败');
                 if (result.success) {
                     this.productStats = result.data;
+                } else {
+                    ElMessage.error(result.msg || '获取商品统计失败');
                 }
             } catch (error) {
                 console.error('获取商品统计失败:', error);

@@ -112,9 +112,9 @@
                         <el-link type="primary" @click="goToProductDetail(row.productId)">{{ row.name }}</el-link>
                     </template>
                 </el-table-column>
-                <el-table-column prop="category" label="分类" width="100">
+                <el-table-column label="分类" width="100">
                     <template #default="{ row }">
-                        <el-tag v-if="row.category" size="small">{{ row.category }}</el-tag>
+                        <el-tag v-if="row.categoryId && categoryMap[row.categoryId]" size="small">{{ categoryMap[row.categoryId] }}</el-tag>
                         <el-tag v-else size="small" type="info">无分类</el-tag>
                     </template>
                 </el-table-column>
@@ -158,7 +158,7 @@ import { ElMessage } from 'element-plus';
 import { User, Search } from '@element-plus/icons-vue';
 import router from '@/router';
 import { processResult } from '@/axios/index.js';
-import { getProductList } from '@/api/index.js';
+import { getProductList, getCategoryList } from '@/api/index.js';
 
 export default {
     name: 'ProductShow',
@@ -178,12 +178,14 @@ export default {
 
             // 当前用户
             currentUser: null,
+            // 分类id到名称的映射
+            categoryMap: {}
         }
     },
     computed: {
         categories() {
-            const categories = new Set(this.productList.map(product => product.category).filter(Boolean))
-            return Array.from(categories).sort()
+            const names = Object.values(this.categoryMap).filter(Boolean)
+            return [...new Set(names)].sort()
         },
 
         // 有库存商品数量
@@ -198,12 +200,12 @@ export default {
                 const query = this.searchQuery.toLowerCase()
                 products = products.filter(product =>
                     product.name.toLowerCase().includes(query) ||
-                    (product.category && product.category.toLowerCase().includes(query))
+                    (product.categoryId && this.categoryMap[product.categoryId] && this.categoryMap[product.categoryId].toLowerCase().includes(query))
                 )
             }
 
             if (this.selectedCategory) {
-                products = products.filter(product => product.category === this.selectedCategory)
+                products = products.filter(product => product.categoryId && this.categoryMap[product.categoryId] === this.selectedCategory)
             }
 
             products.sort((a, b) => {
@@ -275,6 +277,21 @@ export default {
                         this.productList = res_data.items;
                     } else {
                         this.productList = [];
+                    }
+                } else {
+                    ElMessage.error(result.msg || '获取商品列表失败');
+                }
+
+                // 获取分类列表
+                const cat_response = await getCategoryList();
+                const cat_result = processResult(cat_response.data, '获取分类列表失败');
+                if (cat_result.success) {
+                    const cat_data = cat_result.data;
+                    if (cat_data && Array.isArray(cat_data.categories)) {
+                        this.categoryMap = cat_data.categories.reduce((map, cat) => {
+                            map[cat.categoryId] = cat.name;
+                            return map;
+                        }, {});
                     }
                 }
 

@@ -183,6 +183,8 @@ export default {
                     } else {
                         this.categoryList = [];
                     }
+                } else {
+                    ElMessage.error(result.msg || '获取分类列表失败');
                 }
             } catch (error) {
                 console.error('获取分类列表失败:', error);
@@ -225,6 +227,8 @@ export default {
                     ElMessage.success(result.msg || (this.isEditing ? '分类更新成功' : '分类新增成功'));
                     this.showDialog = false;
                     this.loadCategories();
+                } else {
+                    ElMessage.error(result.msg || '操作失败');
                 }
             } catch (error) {
                 console.error('操作失败:', error);
@@ -245,6 +249,8 @@ export default {
                     if (result.success) {
                         ElMessage.success(result.msg || '删除分类成功');
                         this.loadCategories();
+                    } else {
+                        ElMessage.error(result.msg || '删除分类失败');
                     }
                 } catch (error) {
                     console.error('删除分类失败:', error);

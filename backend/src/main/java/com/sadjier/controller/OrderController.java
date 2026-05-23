@@ -2,6 +2,7 @@ package com.sadjier.controller;
 
 import com.sadjier.annotations.RequireRole;
 import com.sadjier.common.Result;
+import com.sadjier.enums.OrderStatusEnum;
 import com.sadjier.enums.UserRolesEnum;
 import com.sadjier.model.dto.order.OrderCreateDTO;
 import com.sadjier.model.dto.order.OrderGetPageDTO;
@@ -10,6 +11,7 @@ import com.sadjier.model.vo.order.OrderGetPageVO;
 import com.sadjier.service.OrderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -53,5 +55,12 @@ public class OrderController {
     @RequireRole(all = true)
     public Result<String> deleteOrder(@PathVariable("order_id") Long order_id) {
         return order_service.deleteOrder(order_id);
+    }
+    /// <summary>获取订单可转换的状态列表</summary>
+    @GetMapping("/transitions/{order_id}")
+    @Operation(summary = "获取订单可转换的状态列表")
+    @RequireRole(all = true)
+    public Result<List<OrderStatusEnum>> getOrderTransitions(@PathVariable("order_id") Long order_id) {
+        return order_service.getOrderTransitions(order_id);
     }
 }

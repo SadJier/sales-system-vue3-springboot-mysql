@@ -316,6 +316,8 @@ export default {
                     } else {
                         this.userList = [];
                     }
+                } else {
+                    ElMessage.error(result.msg || '获取用户列表失败');
                 }
             } catch (error) {
                 console.error('获取用户列表失败:', error);
@@ -355,6 +357,8 @@ export default {
                     ElMessage.success(result.msg || '用户删除成功');
                     this.closeDeleteDialog();
                     this.handleSearch();
+                } else {
+                    ElMessage.error(result.msg || '删除失败');
                 }
             } catch (error) {
                 console.error('删除失败:', error);

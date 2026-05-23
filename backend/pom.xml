@@ -8,11 +8,11 @@
         <version>3.2.5</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>com.hhn</groupId>
+    <groupId>com.sadjier</groupId>
     <artifactId>sale_system</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>sale_system</name>
-    <description>sale_system</description>
+    <description>一个商品销售管理系统</description>
     <url/>
     <licenses>
         <license/>
@@ -92,6 +92,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+        <!-- RabbitMQ消息队列 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
     </dependencies>
 

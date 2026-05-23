@@ -35,10 +35,10 @@ public interface OrdersRepository extends JpaRepository<Orders, Long>, JpaSpecif
     @Query("SELECT COALESCE(SUM(o.totalAmount), 0) FROM Orders o WHERE o.merchant = :merchant AND o.status = :status")
     BigDecimal sumTotalAmountByMerchantAndStatus(@Param("merchant") SysUser merchant, @Param("status") OrderStatusEnum status);
     /// <summary>按商家分组统计各商品的销售数量和销售额</summary>
-    @Query("SELECT o.product.productId, SUM(o.quantity), SUM(o.totalAmount) FROM Orders o WHERE o.merchant = :merchant GROUP BY o.product.productId")
+    @Query("SELECT o.product.productId, COALESCE(SUM(o.quantity), 0), COALESCE(SUM(o.totalAmount), 0) FROM Orders o WHERE o.merchant = :merchant AND o.status = com.sadjier.enums.OrderStatusEnum.COMPLETED GROUP BY o.product.productId")
     List<Object[]> groupProductSalesByMerchant(@Param("merchant") SysUser merchant);
     /// <summary>按商品统计总销售数量和总销售额</summary>
-    @Query("SELECT COALESCE(SUM(o.quantity), 0), COALESCE(SUM(o.totalAmount), 0) FROM Orders o WHERE o.product.productId = :productId")
+    @Query("SELECT COALESCE(SUM(o.quantity), 0), COALESCE(SUM(o.totalAmount), 0) FROM Orders o WHERE o.product.productId = :productId AND o.status = com.sadjier.enums.OrderStatusEnum.COMPLETED")
     List<Object[]> sumSalesByProductId(@Param("productId") Long productId);
     /// <summary>按商品查询最近的订单记录</summary>
     List<Orders> findTop10ByProductProductIdOrderByCreateTimeDesc(Long productId);

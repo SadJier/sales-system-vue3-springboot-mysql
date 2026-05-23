@@ -14,6 +14,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
@@ -115,6 +116,58 @@ public class CommonUtil {
             return request.getHeader("Authorization");
         } catch (Exception e) {
             return null;
+        }
+    }
+    /// <summary>删除用户头像文件</summary>
+    public static boolean deleteUserAvatar(Long user_id) {
+        String folder_path = getAvatarFolderPath();
+        File avatar_file = new File(folder_path + "/" + user_id + ".jpg");
+        if (avatar_file.exists()) {
+            return avatar_file.delete();
+        }
+        return true;
+    }
+    /// <summary>删除商品图片文件</summary>
+    public static boolean deleteProductImage(Long product_id) {
+        String folder_path = getProductImageFolderPath();
+        File image_file = new File(folder_path + "/" + product_id + ".jpg");
+        if (image_file.exists()) {
+            return image_file.delete();
+        }
+        return true;
+    }
+    /// <summary>从字节数组上传用户头像</summary>
+    public static boolean uploadUserAvatarFromBytes(Long user_id, byte[] file_data) {
+        String absolute_path = getAvatarFolderPath();
+        File folder = new File(absolute_path);
+        if (!folder.exists()) {
+            boolean ignore = folder.mkdirs();
+        }
+        String file_name = user_id + ".jpg";
+        File dest_file = new File(absolute_path + "/" + file_name);
+        try (FileOutputStream fos = new FileOutputStream(dest_file)) {
+            fos.write(file_data);
+            return true;
+        } catch (Exception e) {
+            log.error("用户头像上传失败:{}", e.getMessage());
+            return false;
+        }
+    }
+    /// <summary>从字节数组上传商品图片</summary>
+    public static boolean uploadProductImageFromBytes(Long product_id, byte[] file_data) {
+        String absolute_path = getProductImageFolderPath();
+        File folder = new File(absolute_path);
+        if (!folder.exists()) {
+            boolean ignore = folder.mkdirs();
+        }
+        String file_name = product_id + ".jpg";
+        File dest_file = new File(absolute_path + "/" + file_name);
+        try (FileOutputStream fos = new FileOutputStream(dest_file)) {
+            fos.write(file_data);
+            return true;
+        } catch (Exception e) {
+            log.error("商品图片上传失败:{}", e.getMessage());
+            return false;
         }
     }
 }

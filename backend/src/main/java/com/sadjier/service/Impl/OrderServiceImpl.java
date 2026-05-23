@@ -15,7 +15,9 @@ import com.sadjier.model.entity.Orders;
 import com.sadjier.model.entity.Product;
 import com.sadjier.model.vo.order.OrderGetPageVO;
 import com.sadjier.model.vo.order.OrderListItemVO;
+import com.sadjier.mq.producer.BusinessMessageProducer;
 import com.sadjier.service.OrderService;
+import com.sadjier.state.OrderStateMachine;
 import com.sadjier.util.CommonUtil;
 import com.sadjier.util.JwtUtil;
 import jakarta.persistence.criteria.Predicate;
@@ -25,6 +27,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -46,10 +49,12 @@ public class OrderServiceImpl implements OrderService {
     /// <summary>用户仓储</summary>
     @Autowired
     private SysUserRepository user_repo;
+    /// <summary>业务消息生产者</summary>
+    @Autowired
+    private BusinessMessageProducer business_message_producer;
 
     /// <summary>分页查询订单</summary>
     public Result<OrderGetPageVO> getOrderPage(OrderGetPageDTO dto) {
-//        log.info("分页查询订单");
         int page_index = dto.getPageIndex() <= 0 ? 0 : dto.getPageIndex() - 1;
         int page_size = dto.getPageSize() <= 0 ? 10 : dto.getPageSize();
         PageRequest page_request = PageRequest.of(page_index, page_size);
@@ -94,7 +99,7 @@ public class OrderServiceImpl implements OrderService {
             return Result.result(ResultStatusEnum.DATA_INVALID,ResultMsgConstant.TOKEN_LOCAL_INVALID);
         }
         BigDecimal total_amount = product.getSalePrice().multiply(BigDecimal.valueOf(order_create.getQuantity()));
-        //新增订单
+        //新增订单（初始状态为未支付，不扣减库存）
         Orders order = new Orders();
         order.setMerchant(user);
         order.setBuyerName(order_create.getBuyerName());
@@ -106,13 +111,13 @@ public class OrderServiceImpl implements OrderService {
         order.setRemark(order_create.getRemark());
         order.setCreateTime(LocalDateTime.now());
         order_repo.save(order);
-        //库存更新
-        product.setStock(product.getStock() - order_create.getQuantity());
-        product_repo.save(product);
+        //发送店铺统计更新消息
+        business_message_producer.sendStoreStatsUpdateMessage(user.getUserId());
 
         return Result.success(ResultMsgConstant.ORDER_ADD_SUCCESS);
     }
     /// <summary>更新订单</summary>
+    @Transactional(rollbackFor = Exception.class)
     public Result<String> updateOrder(OrderUpdateDTO order_update) {
         Orders order = order_repo.findByOrderId(order_update.getOrderId());
         if (order == null) {
@@ -125,19 +130,42 @@ public class OrderServiceImpl implements OrderService {
         if (role == UserRolesEnum.MERCHANT && !Objects.equals(order.getMerchant().getUserId(), user_id)) {
             return Result.result(ResultStatusEnum.DATA_NO_PERMISSION, ResultMsgConstant.ORDER_UPDATE_ONLY_OWN);
         }
-        //更新信息
+        //状态转换
         if (StringUtils.hasText(order_update.getStatus())) {
+            OrderStatusEnum target_status;
             try {
-                OrderStatusEnum status = OrderStatusEnum.valueOf(order_update.getStatus());
-                order.setStatus(status);
+                target_status = OrderStatusEnum.valueOf(order_update.getStatus());
             } catch (IllegalArgumentException e) {
                 return Result.result(ResultStatusEnum.DATA_INVALID, ResultMsgConstant.ORDER_STATUS_INVALID);
             }
+            //状态机校验
+            OrderStateMachine state_machine = new OrderStateMachine(order.getStatus());
+            boolean could_transit = state_machine.canTransitTo(target_status);
+            if (!could_transit) {
+                return Result.result(ResultStatusEnum.DATA_INVALID, ResultMsgConstant.ORDER_STATUS_INVALID);
+            }
+            //支付时扣减库存
+            if (target_status == OrderStatusEnum.PAID && order.getStatus() == OrderStatusEnum.UNPAID) {
+                Product product = product_repo.findByProductId(order.getProduct().getProductId());
+                if (product.getStock() < order.getQuantity()) {
+                    return Result.result(ResultStatusEnum.ERROR, ResultMsgConstant.ORDER_PRODUCT_NO_STOCK);
+                }
+                product.setStock(product.getStock() - order.getQuantity());
+                product_repo.save(product);
+            }
+            //取消已支付订单时恢复库存
+            if (target_status == OrderStatusEnum.CANCELLED && order.getStatus() == OrderStatusEnum.PAID) {
+                Product product = product_repo.findByProductId(order.getProduct().getProductId());
+                product.setStock(product.getStock() + order.getQuantity());
+                product_repo.save(product);
+            }
+            order.setStatus(target_status);
+            //发送店铺统计更新消息
+            business_message_producer.sendStoreStatsUpdateMessage(order.getMerchant().getUserId());
         }
         if (order_update.getRemark() != null) {
             order.setRemark(order_update.getRemark());
         }
-
         order_repo.save(order);
         return Result.success(ResultMsgConstant.ORDER_UPDATE_SUCCESS);
     }
@@ -157,5 +185,21 @@ public class OrderServiceImpl implements OrderService {
 
         order_repo.deleteById(order_id);
         return Result.success(ResultMsgConstant.ORDER_DELETE_SUCCESS);
+    }
+    /// <summary>获取订单可转换的状态列表</summary>
+    public Result<List<OrderStatusEnum>> getOrderTransitions(Long order_id) {
+        Orders order = order_repo.findByOrderId(order_id);
+        if (order == null) {
+            return Result.result(ResultStatusEnum.NO_DATA, ResultMsgConstant.ORDER_NOT_FOUND);
+        }
+        //商家只能查询自己订单的可转换状态
+        var claims = JwtUtil.parseToken(CommonUtil.getToken());
+        var user_id = JwtUtil.getUserId(claims);
+        var role = JwtUtil.getUserRole(claims);
+        if (role == UserRolesEnum.MERCHANT && !Objects.equals(order.getMerchant().getUserId(), user_id)) {
+            return Result.result(ResultStatusEnum.DATA_NO_PERMISSION, ResultMsgConstant.ORDER_UPDATE_ONLY_OWN);
+        }
+        OrderStateMachine state_machine = new OrderStateMachine(order.getStatus());
+        return Result.success(state_machine.getAllowedTransitions());
     }
 }

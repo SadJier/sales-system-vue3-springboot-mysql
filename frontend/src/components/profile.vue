@@ -130,7 +130,7 @@
 
 <script>
 import { useUserStore } from '@/pinia/userStores.js';
-import { userLogout, updateUserPassword, uploadUserAvatar, getAvatarUrl } from '@/api/index.js';
+import { userLogout, updateUserPassword, uploadUserAvatar, getAvatarUrl, checkBusinessCompleted } from '@/api/index.js';
 import { processResult } from '@/axios/index.js';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { User, ArrowDown, SwitchButton, Camera } from '@element-plus/icons-vue';
@@ -171,6 +171,10 @@ export default {
             avatar_timestamp: Date.now(),
             // 头像上传加载状态
             avatarUploading: false,
+            // 头像上传轮询定时器
+            avatar_polling_timer: null,
+            // 头像上传轮询重试次数
+            avatar_polling_retry: 0,
             // 表单数据
             form: {
                 oldPassword: '',
@@ -300,6 +304,8 @@ export default {
                     const userStore = useUserStore();
                     userStore.logout();
                     router.push('/login');
+                } else {
+                    ElMessage.error(result.msg || '修改失败');
                 }
             } catch (error) {
                 console.error('修改失败:', error);
@@ -344,25 +350,76 @@ export default {
          */
         async handleAvatarUpload(params) {
             this.avatarUploading = true;
-
+            // 弹出顶部加载提示
+            const loading_instance = ElMessage({
+                message: '头像上传中...',
+                type: 'info',
+                duration: 0
+            });
             try {
                 const response = await uploadUserAvatar({
                     file: params.file
                 });
-
                 const result = processResult(response.data, '头像上传失败');
                 if (result.success) {
-                    // 更新时间戳以破缓存刷新头像
-                    this.avatar_timestamp = Date.now();
-                    ElMessage.success(result.msg || '头像更新成功');
+                    // result.data 为业务ID，开始轮询
+                    const business_id = result.data;
+                    this.avatar_polling_retry = 0;
+                    this.pollAvatarUploadStatus(business_id, loading_instance);
+                } else {
+                    loading_instance.close();
+                    this.avatarUploading = false;
+                    ElMessage.error(result.msg || '头像上传失败');
                 }
             } catch (error) {
                 console.error('头像上传失败:', error);
+                loading_instance.close();
                 ElMessage.error('头像上传失败，请稍后重试');
-            } finally {
                 this.avatarUploading = false;
             }
-        }
+        },
+
+        /**
+         * 轮询头像上传业务完成状态
+         * @param {String} business_id 业务ID
+         * @param {Object} loading_instance 加载提示实例
+         */
+        pollAvatarUploadStatus(business_id, loading_instance) {
+            if (this.avatar_polling_timer) {
+                clearTimeout(this.avatar_polling_timer);
+            }
+            this.avatar_polling_timer = setTimeout(async () => {
+                try {
+                    const response = await checkBusinessCompleted(business_id);
+                    const result = processResult(response.data, '');
+                    if (result.success && result.data === true) {
+                        // 上传完成
+                        loading_instance.close();
+                        this.avatar_timestamp = Date.now();
+                        ElMessage.success('头像更新成功');
+                        this.avatarUploading = false;
+                    } else if (this.avatar_polling_retry < 20) {
+                        // 继续轮询
+                        this.avatar_polling_retry++;
+                        this.pollAvatarUploadStatus(business_id, loading_instance);
+                    } else {
+                        // 超时
+                        loading_instance.close();
+                        ElMessage.error('头像上传超时，请稍后刷新查看');
+                        this.avatarUploading = false;
+                    }
+                } catch (error) {
+                    if (this.avatar_polling_retry < 20) {
+                        this.avatar_polling_retry++;
+                        this.pollAvatarUploadStatus(business_id, loading_instance);
+                    } else {
+                        loading_instance.close();
+                        ElMessage.error('头像上传状态查询失败');
+                        this.avatarUploading = false;
+                    }
+                }
+            }, 1000);
+        },
     }
 };
 </script>

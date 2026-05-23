@@ -26,22 +26,26 @@ const API = {
     // 商品图片上传
     PRODUCT_UPLOAD_IMAGE: '/api/products/upload/products',
     // 商品图片获取（按商品ID）
-    PRODUCT_IMAGE_URL: (product_id) => `https://localhost/api/products/image/${product_id}`,
+    PRODUCT_IMAGE_URL: (product_id) => `/api/products/image/${product_id}`,
     // 客户相关
     CUSTOMER_LIST: '/api/customers',
     CUSTOMER_CREATE: '/api/customers',
     CUSTOMER_UPDATE: (customer_id) => `/api/customers/${customer_id}`,
     CUSTOMER_DELETE: (customer_id) => `/api/customers/${customer_id}`,
     // 头像获取
-    AVATAR_URL: (user_id) => `https://localhost/api/users/avatars/${user_id}`,
+    AVATAR_URL: (user_id) => `/api/users/avatars/${user_id}`,
     // 订单相关
     ORDER_LIST: '/api/orders',
     ORDER_CREATE: '/api/orders',
     ORDER_UPDATE: '/api/orders/update',
     // 订单删除
     ORDER_DELETE: (order_id) => `/api/orders/delete/${order_id}`,
+    // 获取订单可转换状态
+    ORDER_TRANSITIONS: (order_id) => `/api/orders/transitions/${order_id}`,
     // 店铺统计
     STORE_STATS: '/api/stores/stats',
+    // 业务完成状态查询
+    BUSINESS_COMPLETED: (business_id) => `/api/business/completed/${business_id}`,
     // 商品详情统计
     PRODUCT_STATS: (product_id) => `/api/products/stats/${product_id}`,
     // 分类相关
@@ -281,6 +285,14 @@ export function deleteOrder(order_id) {
 }
 
 /**
+ * 获取订单可转换的状态列表
+ * @param {Number} order_id 订单ID
+ */
+export function getOrderTransitions(order_id) {
+    return http.get(API.ORDER_TRANSITIONS(order_id));
+}
+
+/**
  * 获取店铺统计
  * @param {Number} merchantId 商家ID（管理员查看指定商家时传入）
  */
@@ -288,6 +300,14 @@ export function getStoreStats(merchantId) {
     const params = {};
     if (merchantId) params.merchantId = merchantId;
     return http.get(API.STORE_STATS, { params });
+}
+
+/**
+ * 查询业务是否完成
+ * @param {String} business_id 业务ID
+ */
+export function checkBusinessCompleted(business_id) {
+    return http.get(API.BUSINESS_COMPLETED(business_id));
 }
 
 /**
@@ -310,7 +330,7 @@ export function getCategoryList() {
  * @param {String} name 分类名称
  */
 export function createCategory(name) {
-    return http.post(API.CATEGORY_CREATE, name, {
+    return http.post(API.CATEGORY_CREATE, { name }, {
         headers: { 'Content-Type': 'application/json' }
     });
 }

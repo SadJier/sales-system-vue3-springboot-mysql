@@ -73,6 +73,13 @@
                 </div>
             </div>
             <div class="stat-card">
+                <div class="stat-icon shipped">🚚</div>
+                <div class="stat-content">
+                    <div class="stat-value">{{ stats.shippedOrders || 0 }}</div>
+                    <div class="stat-label">已发货</div>
+                </div>
+            </div>
+            <div class="stat-card">
                 <div class="stat-icon completed">✅</div>
                 <div class="stat-content">
                     <div class="stat-value">{{ stats.completedOrders || 0 }}</div>
@@ -96,8 +103,8 @@
         </div>
 
         <!-- 商品销售额占比 -->
-        <div class="sales-section" v-loading="sales_loading">
-            <h3>商品销售额占比（仅已支付和已完成订单）</h3>
+        <div class="sales-section" v-loading="loading">
+            <h3>商品销售额占比（仅已完成订单）</h3>
             <div class="chart-container" v-if="productRevenueList.length > 0">
                 <div class="pie-chart">
                     <div class="pie-visual">
@@ -131,7 +138,7 @@
                     </template>
                 </el-table-column>
             </el-table>
-            <el-empty v-if="!sales_loading && productRevenueList.length === 0" description="暂无销售数据" />
+            <el-empty v-if="!loading && productRevenueList.length === 0" description="暂无销售数据" />
         </div>
     </div>
 </template>
@@ -142,7 +149,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { User, ArrowDown, SwitchButton } from '@element-plus/icons-vue';
 import router from '@/router';
 import { processResult } from '@/axios/index.js';
-import { userLogout, getStoreStats, getOrderList, getAvatarUrl } from '@/api/index.js';
+import { userLogout, getStoreStats, getAvatarUrl } from '@/api/index.js';
 
 export default {
     name: 'StoreOverview',
@@ -157,11 +164,9 @@ export default {
             view_merchant_id: null,
             // 店铺统计数据
             stats: {},
-            // 订单列表（用于前端计算销售额占比）
-            orderList: [],
+            // 商品销售占比列表（来自后端，按商家过滤）
+            productRevenueList: [],
             loading: false,
-            // 销售额占比加载状态
-            sales_loading: false,
             // 头像时间戳
             avatar_timestamp: Date.now()
         };
@@ -183,26 +188,9 @@ export default {
             if (this.view_merchant_id) return '查看商家店铺数据';
             return '查看我的店铺数据';
         },
-        // 有效订单（已支付+已完成）用于计算销售额占比
-        validOrders() {
-            return this.orderList.filter(o => o.status === 'PAID' || o.status === 'COMPLETED');
-        },
         // 有效销售额总计（仅已支付+已完成）
         validTotalRevenue() {
-            return this.validOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
-        },
-        // 按商品聚合的销售额数据（仅已支付+已完成）
-        productRevenueList() {
-            const map = {};
-            for (const order of this.validOrders) {
-                const name = order.productName || '未知商品';
-                if (!map[name]) {
-                    map[name] = { productName: name, revenue: 0, quantity: 0 };
-                }
-                map[name].revenue += order.totalPrice || 0;
-                map[name].quantity += order.quantity || 0;
-            }
-            return Object.values(map).sort((a, b) => b.revenue - a.revenue);
+            return this.productRevenueList.reduce((sum, item) => sum + (item.revenue || 0), 0);
         },
         // 饼状图配色列表（供模板使用）
         pieColors() {
@@ -230,7 +218,6 @@ export default {
     mounted() {
         this.loadUserInfo();
         this.loadStats();
-        this.loadAllOrders();
     },
     methods: {
         // 加载店铺统计
@@ -243,28 +230,18 @@ export default {
                 const result = processResult(response.data, '获取店铺统计失败');
                 if (result.success) {
                     this.stats = result.data || {};
+                    //从后端统计中提取商品销售占比（已按商家过滤）
+                    this.productRevenueList = (result.data && Array.isArray(result.data.productSales))
+                        ? result.data.productSales.sort((a, b) => (b.revenue || 0) - (a.revenue || 0))
+                        : [];
+                } else {
+                    ElMessage.error(result.msg || '获取店铺统计失败');
                 }
             } catch (error) {
                 console.error('获取店铺统计失败:', error);
                 ElMessage.error('获取店铺统计失败，请检查网络连接');
             } finally {
                 this.loading = false;
-            }
-        },
-
-        // 加载全部订单用于前端计算
-        async loadAllOrders() {
-            this.sales_loading = true;
-            try {
-                const response = await getOrderList({ pageIndex: 1, pageSize: 1000 });
-                const result = processResult(response.data, '获取订单列表失败');
-                if (result.success && result.data?.items) {
-                    this.orderList = result.data.items;
-                }
-            } catch (error) {
-                console.error('获取订单列表失败:', error);
-            } finally {
-                this.sales_loading = false;
             }
         },
 
@@ -277,7 +254,6 @@ export default {
         // 刷新全部数据
         refreshAll() {
             this.loadStats();
-            this.loadAllOrders();
         },
 
         loadUserInfo() {
@@ -352,6 +328,7 @@ export default {
 .stat-icon.total { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
 .stat-icon.unpaid { background: linear-gradient(135deg, #f59e0b, #fbbf24); color: white; }
 .stat-icon.paid { background: linear-gradient(135deg, #3b82f6, #60a5fa); color: white; }
+.stat-icon.shipped { background: linear-gradient(135deg, #8b5cf6, #a78bfa); color: white; }
 .stat-icon.completed { background: linear-gradient(135deg, #10b981, #34d399); color: white; }
 .stat-icon.cancelled { background: linear-gradient(135deg, #6b7280, #9ca3af); color: white; }
 .stat-icon.revenue { background: linear-gradient(135deg, #ef4444, #f87171); color: white; }

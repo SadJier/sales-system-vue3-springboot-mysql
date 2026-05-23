@@ -23,6 +23,9 @@ public class StoreStatsVO {
     /// <summary>已支付订单数</summary>
     @Schema(description = "已支付订单数")
     private Long paidOrders;
+    /// <summary>已发货订单数</summary>
+    @Schema(description = "已发货订单数")
+    private Long shippedOrders;
     /// <summary>已完成订单数</summary>
     @Schema(description = "已完成订单数")
     private Long completedOrders;
