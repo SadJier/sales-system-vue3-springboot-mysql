@@ -36,8 +36,8 @@ spring.data.redis.lettuce.pool.max-wait=-1ms
 # RabbitMQ配置
 spring.rabbitmq.host=rabbitmq地址
 spring.rabbitmq.port=rabbitmq端口
-spring.rabbitmq.username=guest
-spring.rabbitmq.password=guest
+spring.rabbitmq.username=rabbitmq用户名（默认guest）
+spring.rabbitmq.password=rabbitmq密码（默认guest）
 spring.rabbitmq.virtual-host=/
 # RabbitMQ消息确认机制
 spring.rabbitmq.publisher-confirm-type=correlated
